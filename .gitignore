@@ -28,3 +28,5 @@ dist-ssr
 *.xls
 *.csv
 money-backup-*.json
+/*.png
+/*.jpg

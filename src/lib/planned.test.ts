@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { outflows, summarize } from './budget'
 import { cycleOf, shiftCycle } from './dates'
 import { plannedStatuses } from './planned'
-import type { PaymentMethod, Transaction } from './types'
+import type { PaymentMethod, PlannedExpense, Transaction } from './types'
 
 const c0 = cycleOf('2026-09-25', 25) // 9/25〜10/24
 const c1 = shiftCycle(c0, 1, 25) // 10/25〜11/24
@@ -12,7 +12,7 @@ const today = '2026-09-25'
 const trip = { id: 'trip', name: '旅行', amount: 60000, date: '2026-12-10', methodId: 'm1', reserveFrom: '2026-09-25' }
 const soon = { id: 'soon', name: '結婚式のご祝儀', amount: 30000, date: '2026-10-10', methodId: 'cash', reserveFrom: '2026-09-25' }
 
-const status = (plan: typeof trip, cycle = c0, txs: Transaction[] = [], day = today) =>
+const status = (plan: PlannedExpense & { id: string }, cycle = c0, txs: Transaction[] = [], day = today) =>
   plannedStatuses([plan], txs, cycle, 25, day)[0]
 
 describe('plannedStatuses', () => {
@@ -27,8 +27,49 @@ describe('plannedStatuses', () => {
   it('実際の額が予定と違えば、差額だけ予定日のサイクルで調整する', () => {
     const paid = [{ id: 't', date: '2026-12-10', amount: 65000, category: '娯楽', methodId: 'm1', memo: '', plannedId: 'trip' }]
     expect(status(trip, c2, paid)).toMatchObject({ paid: 65000, dueCharge: 5000 })
+    // 予定より安く済んだ場合は「これで完了」にすると、残りの確保が予算に戻る
     const cheaper = [{ ...paid[0], amount: 52000 }]
-    expect(status(trip, c2, cheaper).dueCharge).toBe(-8000)
+    expect(status({ ...trip, closedOn: '2026-12-10' }, c2, cheaper)).toMatchObject({ closed: true, dueCharge: -8000 })
+  })
+
+  describe('一部払い', () => {
+    const deposit = { id: 'd', date: '2026-10-01', amount: 20000, category: '娯楽', methodId: 'm1', memo: '', plannedId: 'trip' }
+
+    it('一部を払っても完了にせず、残りを確保したままにする', () => {
+      expect(status(trip, c0, [deposit])).toMatchObject({ paid: 20000, closed: false, remaining: 40000, thisCycleReserve: 30000 })
+      expect(status(trip, c1, [deposit])).toMatchObject({ thisCycleReserve: 30000 })
+      // 予定日のサイクルになっても、残りの 40,000 は確保したお金で払うので予算に戻さない
+      expect(status(trip, c2, [deposit])).toMatchObject({ dueCharge: 0, remaining: 40000 })
+    })
+
+    it('残りを払って合計が予定額に達したら自動で完了', () => {
+      const rest = { ...deposit, id: 'r', date: '2026-12-10', amount: 40000 }
+      expect(status(trip, c2, [deposit, rest])).toMatchObject({ paid: 60000, closed: true, remaining: 0, dueCharge: 0 })
+    })
+
+    it('予定日より前に払い終えたら、そのサイクルで精算して以降は確保しない', () => {
+      const all = { ...deposit, amount: 60000 }
+      // 10/1 に全額払った → 9/25 のサイクルで精算（確保はまだ 0 なので全額を今サイクルの予算から）
+      expect(status(trip, c0, [all])).toMatchObject({ closed: true, thisCycleReserve: 0, dueCharge: 60000 })
+      expect(status(trip, c1, [all])).toMatchObject({ thisCycleReserve: 0, dueCharge: 0, thisCycleTotal: 0 })
+    })
+
+    it('予定より安く済んで途中で完了にしたら、確保済みの分との差を予算に戻す', () => {
+      const plan = { ...trip, closedOn: '2026-11-01' } // 10/25 のサイクルで完了
+      const txs = [{ ...deposit, amount: 25000 }]
+      // 9/25 のサイクルで 30,000 確保済み → 最終 25,000 との差 −5,000 を 10/25 のサイクルで戻す
+      expect(status(plan, c1, txs)).toMatchObject({ thisCycleReserve: 0, dueCharge: -5000 })
+      expect(status(plan, c2, txs).thisCycleTotal).toBe(0)
+    })
+
+    it('残りの額だけを引落の見込みに含める', () => {
+      const olive: PaymentMethod = { id: 'm1', name: 'Olive', kind: 'credit', closingDay: 31, paymentDay: 26, monthOffset: 1, order: 1 }
+      const flows = outflows(today, [olive], [deposit], [], [], [trip])
+      expect(flows.map((f) => [f.paymentDate, f.amount, f.includesEstimate])).toEqual([
+        ['2026-11-26', 20000, false], // 10/1 に払った 20,000（10/31 締め）
+        ['2027-01-26', 40000, true], // 残り 40,000 の見込み
+      ])
+    })
   })
 
   it('確保する期間がない（今のサイクルが予定日）なら、その全額を今サイクルで引く', () => {

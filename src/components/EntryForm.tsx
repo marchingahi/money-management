@@ -36,11 +36,14 @@ export function EntryForm({ data, initial, onClose }: Props) {
   const [memo, setMemo] = useState(initial?.memo ?? '')
   const [fixedCostId, setFixedCostId] = useState<string | undefined>(initial?.fixedCostId)
   const [plannedId, setPlannedId] = useState<string | undefined>(initial?.plannedId)
-  // 支払いの記録がまだない予定の出費（＋この支出がすでに紐付いているもの）
-  const paidPlans = new Set(
-    data.transactions.flatMap((t) => (t.plannedId && t.id !== initial?.id ? [t.plannedId] : [])),
+  // 払い終わっていない予定の出費（一部払いを含む）＋この支出がすでに紐付いているもの
+  const paidByPlan = new Map<string, number>()
+  for (const t of data.transactions) {
+    if (t.plannedId && t.id !== initial?.id) paidByPlan.set(t.plannedId, (paidByPlan.get(t.plannedId) ?? 0) + t.amount)
+  }
+  const openPlans = data.planned.filter(
+    (p) => p.id === plannedId || (!p.closedOn && (paidByPlan.get(p.id) ?? 0) < p.amount),
   )
-  const openPlans = data.planned.filter((p) => !paidPlans.has(p.id) || p.id === plannedId)
 
   const method = data.methods.find((m) => m.id === methodId)
   // 取り込み時の引落月指定は、利用日とカードが変わっていない間だけ有効

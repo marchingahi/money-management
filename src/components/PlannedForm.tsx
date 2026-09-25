@@ -37,7 +37,15 @@ export function PlannedForm({ methods, startDay, initial, onClose }: Props) {
 
   const save = async () => {
     if (!canSave) return
-    const plan: PlannedExpense = { name: name.trim(), amount: value, date, methodId, reserveFrom, memo: memo.trim() }
+    const plan: PlannedExpense = {
+      name: name.trim(),
+      amount: value,
+      date,
+      methodId,
+      reserveFrom,
+      memo: memo.trim(),
+      closedOn: initial.closedOn,
+    }
     if (editing) await repo.put('planned', { ...plan, id: initial.id! })
     else await repo.add('planned', plan)
     onClose()

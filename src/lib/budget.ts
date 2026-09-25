@@ -1,5 +1,5 @@
 import { billingOf } from './billing'
-import { plannedStatuses, type PlannedStatus } from './planned'
+import { plannedStatuses, remainingOf, type PlannedStatus } from './planned'
 import { daysBetween, dayWithinCycle, shiftCycle, type Cycle } from './dates'
 import { FIXED_CATEGORY, type Account, type PlannedExpense, type Transfer, type FixedCost, type Income, type Member, type PaymentMethod, type Settings, type Transaction, type YMD } from './types'
 
@@ -157,9 +157,14 @@ export function outflows(
   }
 
   for (const t of txs) add(t.date, t.amount, t.methodId, false, t.paymentMonth)
-  // 支払いの記録がまだない予定の出費は、予定日に予定額で出ていく見込みとして含める
-  const paidPlans = new Set(txs.flatMap((t) => (t.plannedId ? [t.plannedId] : [])))
-  for (const p of plans) if (!paidPlans.has(p.id!)) add(p.date, p.amount, p.methodId, true)
+  // 払い終わっていない予定の出費は、残りの額が予定日に出ていく見込みとして含める
+  // （予定日を過ぎているなら今日払う見込みとして）
+  const paidByPlan = new Map<string, number>()
+  for (const t of txs) if (t.plannedId) paidByPlan.set(t.plannedId, (paidByPlan.get(t.plannedId) ?? 0) + t.amount)
+  for (const p of plans) {
+    const rest = remainingOf(p, paidByPlan.get(p.id!) ?? 0)
+    if (rest > 0) add(p.date < today ? today : p.date, rest, p.methodId, true)
+  }
   for (const cycle of cyclesForEstimates) {
     for (const f of fixedStatuses(fixedCosts, txs, cycle)) {
       if (f.actual == null) add(f.date, f.cost.amount, f.cost.methodId, true)

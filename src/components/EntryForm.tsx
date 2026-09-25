@@ -28,7 +28,8 @@ export function EntryForm({ data, initial, onClose }: Props) {
   const defaultMethod =
     initial?.methodId ?? data.methods.find((m) => m.id === lastMethod)?.id ?? data.methods[0]?.id
 
-  const [amount, setAmount] = useState(initial?.amount ? String(initial.amount) : '')
+  const [amount, setAmount] = useState(initial?.amount ? String(Math.abs(initial.amount)) : '')
+  const [refund, setRefund] = useState((initial?.amount ?? 0) < 0)
   const [date, setDate] = useState(initial?.date ?? todayYMD())
   const [methodId, setMethodId] = useState<number | undefined>(defaultMethod)
   const [category, setCategory] = useState(initial?.category ?? CATEGORIES[0])
@@ -36,9 +37,14 @@ export function EntryForm({ data, initial, onClose }: Props) {
   const [fixedCostId, setFixedCostId] = useState<number | undefined>(initial?.fixedCostId)
 
   const method = data.methods.find((m) => m.id === methodId)
-  const billing = method && date ? billingOf(date, method) : undefined
-  const value = Number(amount.replace(/[^\d]/g, ''))
-  const canSave = value > 0 && method && date
+  // 取り込み時の引落月指定は、利用日とカードが変わっていない間だけ有効
+  const paymentMonth =
+    initial?.paymentMonth && date === initial.date && methodId === initial.methodId ? initial.paymentMonth : undefined
+  const billing = method && date ? billingOf(date, method, paymentMonth) : undefined
+  const value = Number(amount.replace(/[^\d]/g, '')) * (refund ? -1 : 1)
+  const canSave = value !== 0 && method && date
+  const categoryChoices: string[] = [...CATEGORIES, FIXED_CATEGORY]
+  if (!categoryChoices.includes(category)) categoryChoices.push(category)
 
   const chooseFixed = (id: number | undefined) => {
     setFixedCostId(id)
@@ -54,7 +60,16 @@ export function EntryForm({ data, initial, onClose }: Props) {
 
   const save = async () => {
     if (!canSave) return
-    const tx: Transaction = { date, amount: value, category, methodId: method.id!, memo: memo.trim(), fixedCostId }
+    const tx: Transaction = {
+      date,
+      amount: value,
+      category,
+      methodId: method.id!,
+      memo: memo.trim(),
+      fixedCostId,
+      paymentMonth,
+      importKey: initial?.importKey,
+    }
     if (editing) await db.transactions.put({ ...tx, id: initial.id })
     else await db.transactions.add(tx)
     try {
@@ -81,8 +96,8 @@ export function EntryForm({ data, initial, onClose }: Props) {
           </button>
         </div>
 
-        <label className="amount-field">
-          <span>¥</span>
+        <label className={`amount-field ${refund ? 'refund' : ''}`}>
+          <span>{refund ? '−¥' : '¥'}</span>
           <input
             inputMode="numeric"
             placeholder="0"
@@ -91,6 +106,11 @@ export function EntryForm({ data, initial, onClose }: Props) {
             autoFocus
           />
         </label>
+        <div className="chips refund-toggle">
+          <button className={`chip ${refund ? 'on' : ''}`} onClick={() => setRefund(!refund)}>
+            返金・キャンセル
+          </button>
+        </div>
 
         <div className="field">
           <span className="field-label">支払い方法</span>
@@ -108,6 +128,7 @@ export function EntryForm({ data, initial, onClose }: Props) {
           {billing && method?.kind === 'credit' && (
             <p className="hint">
               {formatMD(billing.closingDate)} 締め → <strong>{formatMD(billing.paymentDate)} 引落</strong>
+              {paymentMonth && '（Excelの支払月）'}
             </p>
           )}
         </div>
@@ -133,7 +154,7 @@ export function EntryForm({ data, initial, onClose }: Props) {
           <div className="field">
             <span className="field-label">カテゴリ</span>
             <div className="chips">
-              {CATEGORIES.map((c) => (
+              {categoryChoices.map((c) => (
                 <button key={c} className={`chip ${c === category ? 'on' : ''}`} onClick={() => setCategory(c)}>
                   {c}
                 </button>

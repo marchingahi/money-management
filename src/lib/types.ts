@@ -64,6 +64,13 @@ export interface Transaction {
   memo: string
   /** 固定費の実額として入力された場合の紐付け */
   fixedCostId?: number
+  /**
+   * 引落月の指定（'yyyy-MM'）。締め日からの計算と実際の請求がずれる場合
+   * （月末の公共料金が翌月請求に回る、返金の処理が遅れる等）に使う
+   */
+  paymentMonth?: string
+  /** Excel 取り込み時の重複判定キー */
+  importKey?: string
 }
 
 export interface Settings {

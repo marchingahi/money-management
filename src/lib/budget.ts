@@ -1,6 +1,6 @@
 import { billingOf } from './billing'
 import { daysBetween, dayWithinCycle, type Cycle } from './dates'
-import type { FixedCost, Income, Member, PaymentMethod, Settings, Transaction, YMD } from './types'
+import { FIXED_CATEGORY, type FixedCost, type Income, type Member, type PaymentMethod, type Settings, type Transaction, type YMD } from './types'
 
 export interface FixedStatus {
   cost: FixedCost
@@ -22,7 +22,10 @@ export interface IncomeStatus {
 export interface BudgetSummary {
   income: number
   incomes: IncomeStatus[]
+  /** 固定費の合計（登録済み固定費の確保額 + それ以外の「固定費」カテゴリの支出） */
   fixedTotal: number
+  /** 登録済み固定費に紐付かない「固定費」カテゴリの支出（Excel 取り込み分など） */
+  otherFixed: Transaction[]
   savings: number
   /** 自由に使える予算 = 収入 − 固定費 − 先取り貯金 */
   budget: number
@@ -36,6 +39,9 @@ export interface BudgetSummary {
 }
 
 export const inCycle = (date: YMD, cycle: Cycle) => date >= cycle.start && date <= cycle.end
+
+/** 普段の支出ではなく固定費として扱う支出か */
+export const isFixedTx = (t: Transaction) => t.fixedCostId != null || t.category === FIXED_CATEGORY
 
 export function fixedStatuses(fixedCosts: FixedCost[], txs: Transaction[], cycle: Cycle): FixedStatus[] {
   return fixedCosts.map((cost) => {
@@ -71,15 +77,16 @@ export function summarize(
   const incomes = incomeStatuses(members, incomeRecords, cycle)
   const income = incomes.reduce((s, i) => s + i.amount, 0)
   const fixed = fixedStatuses(fixedCosts, txs, cycle)
-  const fixedTotal = fixed.reduce((s, f) => s + f.reserved, 0)
+  const otherFixed = txs.filter((t) => t.fixedCostId == null && t.category === FIXED_CATEGORY && inCycle(t.date, cycle))
+  const fixedTotal = fixed.reduce((s, f) => s + f.reserved, 0) + otherFixed.reduce((s, t) => s + t.amount, 0)
   const budget = income - fixedTotal - settings.savings
   const spent = txs
-    .filter((t) => t.fixedCostId == null && inCycle(t.date, cycle))
+    .filter((t) => !isFixedTx(t) && inCycle(t.date, cycle))
     .reduce((s, t) => s + t.amount, 0)
   const remaining = budget - spent
   const daysLeft = inCycle(today, cycle) ? daysBetween(today, cycle.end) + 1 : null
   const perDay = daysLeft ? Math.floor(Math.max(remaining, 0) / daysLeft) : null
-  return { income, incomes, fixedTotal, savings: settings.savings, budget, spent, remaining, daysLeft, perDay, fixed }
+  return { income, incomes, fixedTotal, otherFixed, savings: settings.savings, budget, spent, remaining, daysLeft, perDay, fixed }
 }
 
 export interface UpcomingBilling {
@@ -107,10 +114,10 @@ export function upcomingBillings(
   const byId = new Map(methods.map((m) => [m.id!, m]))
   const groups = new Map<string, UpcomingBilling>()
 
-  const add = (date: YMD, amount: number, methodId: number, estimate: boolean) => {
+  const add = (date: YMD, amount: number, methodId: number, estimate: boolean, paymentMonth?: string) => {
     const method = byId.get(methodId)
     if (!method || method.kind !== 'credit') return
-    const { closingDate, paymentDate } = billingOf(date, method)
+    const { closingDate, paymentDate } = billingOf(date, method, paymentMonth)
     if (paymentDate < today) return
     const key = `${methodId}|${paymentDate}`
     const g = groups.get(key) ?? {
@@ -126,7 +133,7 @@ export function upcomingBillings(
     groups.set(key, g)
   }
 
-  for (const t of txs) add(t.date, t.amount, t.methodId, false)
+  for (const t of txs) add(t.date, t.amount, t.methodId, false, t.paymentMonth)
   for (const cycle of cyclesForEstimates) {
     for (const f of fixedStatuses(fixedCosts, txs, cycle)) {
       if (f.actual == null) add(f.date, f.cost.amount, f.cost.methodId, true)

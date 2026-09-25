@@ -22,3 +22,9 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# 個人の家計データ（公開リポジトリに含めない）
+*.xlsx
+*.xls
+*.csv
+money-backup-*.json

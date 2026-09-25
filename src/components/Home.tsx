@@ -118,10 +118,20 @@ export function Home({ data, onEntry }: Props) {
         ))}
       </section>
 
-      {s.fixed.length > 0 && (
+      {(s.fixed.length > 0 || s.otherFixed.length > 0) && (
         <section className="card">
           <h2>今サイクルの固定費</h2>
           <ul className="list">
+            {s.otherFixed.map((t) => (
+              <li key={`tx-${t.id}`} className="clickable" onClick={() => onEntry(t)}>
+                <span className="date">{formatMD(t.date)}</span>
+                <span className="grow">
+                  {t.memo || FIXED_CATEGORY}
+                  <span className="muted small"> {methodName(t.methodId)}</span>
+                </span>
+                <span className="amount">{yen(t.amount)}</span>
+              </li>
+            ))}
             {s.fixed.map((f) => (
               <li key={f.cost.id}>
                 <span className="date">{formatMD(f.date)}</span>

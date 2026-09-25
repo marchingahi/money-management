@@ -67,7 +67,7 @@ export function History({ data, onEdit }: Props) {
             <ul className="list">
               {list.map((t) => {
                 const method = methods.find((m) => m.id === t.methodId)
-                const billing = method?.kind === 'credit' ? billingOf(t.date, method) : undefined
+                const billing = method?.kind === 'credit' ? billingOf(t.date, method, t.paymentMonth) : undefined
                 return (
                   <li key={t.id} className="clickable" onClick={() => onEdit(t)}>
                     <span className="grow">

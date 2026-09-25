@@ -4,6 +4,7 @@ import { expectedTakeHome } from '../lib/budget'
 import { todayYMD } from '../lib/dates'
 import { KIND_LABEL, type MethodKind, type PayType } from '../lib/types'
 import { dayLabel, yen, type AppData } from '../useData'
+import { ImportSheet } from './ImportSheet'
 
 /*
  * 入力のたびに即保存する。フォーカスが外れたときに保存する方式だと、iPhone で
@@ -66,6 +67,7 @@ function DaySelect({ value, onChange }: { value: number; onChange: (v: number) =
 export function SettingsView({ data }: { data: AppData }) {
   const { settings, members, methods, fixedCosts, transactions } = data
   const [message, setMessage] = useState('')
+  const [importing, setImporting] = useState(false)
 
   const deleteMethod = async (id: number) => {
     const used =
@@ -357,9 +359,13 @@ export function SettingsView({ data }: { data: AppData }) {
             バックアップから復元
             <input type="file" accept="application/json" hidden onChange={upload} />
           </label>
+          <button className="btn" onClick={() => setImporting(true)}>
+            Excelから取り込み
+          </button>
         </div>
         {message && <p className="hint">{message}</p>}
       </section>
+      {importing && <ImportSheet data={data} onClose={() => setImporting(false)} />}
     </div>
   )
 }

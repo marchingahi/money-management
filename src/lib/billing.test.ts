@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { billingOf } from './billing'
-import { summarize, upcomingBillings } from './budget'
+import { expectedTakeHome, summarize, upcomingBillings } from './budget'
 import { cycleOf, dayWithinCycle, shiftCycle } from './dates'
-import type { PaymentMethod } from './types'
+import type { Member, PaymentMethod } from './types'
 
 const card = (id: number, name: string, closingDay: number, paymentDay: number): PaymentMethod => ({
   id,
@@ -80,10 +80,11 @@ describe('cycle', () => {
 
 describe('summarize', () => {
   const cycle = cycleOf('2026-09-25', 25)
-  const members = [
-    { id: 1, name: '夫', payday: 25, takeHome: 250000 },
-    { id: 2, name: '妻', payday: 25, takeHome: 150000 },
-  ]
+  const base = { payday: 25, takeHome: 0, hourlyWage: 0, hoursPerDay: 0, daysPerMonth: 0, deductionRate: 0 }
+  const husband: Member = { ...base, id: 1, name: '夫', payType: 'monthly', takeHome: 250000 }
+  // 1,200円 × 6時間 × 16日 × (1 − 10%) = 103,680
+  const wife: Member = { ...base, id: 2, name: '妻', payType: 'hourly', hourlyWage: 1200, hoursPerDay: 6, daysPerMonth: 16, deductionRate: 10 }
+  const members = [husband, wife]
   const fixedCosts = [
     { id: 1, name: '電気', amount: 10000, day: 5, methodId: 1 },
     { id: 2, name: '家賃', amount: 90000, day: 27, methodId: 99 },
@@ -95,15 +96,28 @@ describe('summarize', () => {
   ]
   const settings = { id: 'main' as const, cycleStartDay: 25, savings: 50000 }
 
-  it('世帯収入から固定費（実額優先）と貯金を引いて残額を出す', () => {
-    const s = summarize(cycle, '2026-10-15', members, fixedCosts, txs, settings)
-    expect(s.income).toBe(400000)
+  it('時給の見込み手取り', () => {
+    expect(expectedTakeHome(wife)).toBe(103680)
+    expect(expectedTakeHome(husband)).toBe(250000)
+  })
+
+  it('世帯収入（実額優先）から固定費（実額優先）と貯金を引いて残額を出す', () => {
+    const incomes = [
+      { memberId: 1, cycleStart: '2026-09-25', amount: 262000 }, // 今サイクルの実額
+      { memberId: 2, cycleStart: '2026-08-25', amount: 90000 }, // 前サイクル（無関係）
+    ]
+    const s = summarize(cycle, '2026-10-15', members, incomes, fixedCosts, txs, settings)
+    expect(s.incomes.map((i) => [i.amount, i.actual])).toEqual([
+      [262000, 262000],
+      [103680, undefined],
+    ])
+    expect(s.income).toBe(365680)
     expect(s.fixedTotal).toBe(12000 + 90000)
-    expect(s.budget).toBe(400000 - 102000 - 50000)
+    expect(s.budget).toBe(365680 - 102000 - 50000)
     expect(s.spent).toBe(5000)
-    expect(s.remaining).toBe(248000 - 5000)
+    expect(s.remaining).toBe(213680 - 5000)
     expect(s.daysLeft).toBe(10)
-    expect(s.perDay).toBe(24300)
+    expect(s.perDay).toBe(20868)
   })
 
   it('upcomingBillings はカード×引落日で合算し、未入力の固定費を見込みで含める', () => {

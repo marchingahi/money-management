@@ -1,23 +1,37 @@
 import { useState, type ChangeEvent } from 'react'
-import { db, exportBackup, importBackup, type Backup } from '../db'
+import { db, exportBackup, importBackup, newMember, type Backup } from '../db'
+import { expectedTakeHome } from '../lib/budget'
 import { todayYMD } from '../lib/dates'
-import { KIND_LABEL, type MethodKind } from '../lib/types'
-import { dayLabel, type AppData } from '../useData'
+import { KIND_LABEL, type MethodKind, type PayType } from '../lib/types'
+import { dayLabel, yen, type AppData } from '../useData'
 
-/** 入力中は文字列のまま保持し、フォーカスが外れたときに確定する数値入力 */
-function NumInput({ value, onCommit, min = 0 }: { value: number; onCommit: (v: number) => void; min?: number }) {
+/*
+ * 入力のたびに即保存する。フォーカスが外れたときに保存する方式だと、iPhone で
+ * 入力中にタブを切り替えた場合に blur が発生せず、値が失われる。
+ * 入力中の文字列（空欄や小数点の途中など）は draft として画面側だけで保持する。
+ */
+function NumInput({
+  value,
+  onCommit,
+  decimal = false,
+}: {
+  value: number
+  onCommit: (v: number) => void
+  decimal?: boolean
+}) {
   const [draft, setDraft] = useState<string | null>(null)
   return (
     <input
-      inputMode="numeric"
+      inputMode={decimal ? 'decimal' : 'numeric'}
       value={draft ?? value.toLocaleString('ja-JP')}
-      onFocus={() => setDraft(String(value))}
-      onChange={(e) => setDraft(e.target.value.replace(/[^\d]/g, ''))}
-      onBlur={() => {
-        const v = Math.max(Number(draft || 0), min)
-        if (v !== value) onCommit(v)
-        setDraft(null)
+      onFocus={() => setDraft(value ? String(value) : '')}
+      onChange={(e) => {
+        const text = decimal ? e.target.value.replace(/[^\d.]/g, '') : e.target.value.replace(/[^\d]/g, '')
+        setDraft(text)
+        const v = Number(text || 0)
+        if (Number.isFinite(v) && v !== value) onCommit(v)
       }}
+      onBlur={() => setDraft(null)}
     />
   )
 }
@@ -27,11 +41,12 @@ function TextInput({ value, onCommit }: { value: string; onCommit: (v: string) =
   return (
     <input
       value={draft ?? value}
-      onChange={(e) => setDraft(e.target.value)}
-      onBlur={() => {
-        if (draft != null && draft.trim() && draft !== value) onCommit(draft.trim())
-        setDraft(null)
+      onFocus={() => setDraft(value)}
+      onChange={(e) => {
+        setDraft(e.target.value)
+        if (e.target.value.trim()) onCommit(e.target.value.trim())
       }}
+      onBlur={() => setDraft(null)}
     />
   )
 }
@@ -114,7 +129,10 @@ export function SettingsView({ data }: { data: AppData }) {
       </section>
 
       <section className="card">
-        <h2>収入（手取り）</h2>
+        <h2>収入（手取りの見込み）</h2>
+        <p className="muted small">
+          ここで設定した見込み額で予算を計算します。給与明細や振込額が分かったら、ホーム画面の金額をタップして実額を入力してください。変動がある場合は少し低めに設定しておくと安全です。
+        </p>
         {members.map((m) => (
           <div key={m.id} className="item">
             <div className="form-grid">
@@ -127,10 +145,58 @@ export function SettingsView({ data }: { data: AppData }) {
                 <DaySelect value={m.payday} onChange={(v) => db.members.update(m.id!, { payday: v })} />
               </label>
               <label>
-                手取り月額
-                <NumInput value={m.takeHome} onCommit={(v) => db.members.update(m.id!, { takeHome: v })} />
+                給与形態
+                <select
+                  value={m.payType}
+                  onChange={(e) => db.members.update(m.id!, { payType: e.target.value as PayType })}
+                >
+                  <option value="monthly">月給</option>
+                  <option value="hourly">時給</option>
+                </select>
               </label>
+              {m.payType === 'monthly' ? (
+                <label>
+                  手取り見込み（月額）
+                  <NumInput value={m.takeHome} onCommit={(v) => db.members.update(m.id!, { takeHome: v })} />
+                </label>
+              ) : (
+                <>
+                  <label>
+                    時給
+                    <NumInput value={m.hourlyWage} onCommit={(v) => db.members.update(m.id!, { hourlyWage: v })} />
+                  </label>
+                  <label>
+                    1日の勤務時間
+                    <NumInput
+                      decimal
+                      value={m.hoursPerDay}
+                      onCommit={(v) => db.members.update(m.id!, { hoursPerDay: v })}
+                    />
+                  </label>
+                  <label>
+                    月の勤務日数
+                    <NumInput
+                      value={m.daysPerMonth}
+                      onCommit={(v) => db.members.update(m.id!, { daysPerMonth: v })}
+                    />
+                  </label>
+                  <label>
+                    控除率（%）
+                    <NumInput
+                      decimal
+                      value={m.deductionRate}
+                      onCommit={(v) => db.members.update(m.id!, { deductionRate: Math.min(v, 100) })}
+                    />
+                  </label>
+                </>
+              )}
             </div>
+            {m.payType === 'hourly' && (
+              <p className="hint">
+                見込み手取り {yen(expectedTakeHome(m))}（{m.hourlyWage.toLocaleString('ja-JP')}円 × {m.hoursPerDay}時間 ×{' '}
+                {m.daysPerMonth}日 − 控除{m.deductionRate}%）
+              </p>
+            )}
             {members.length > 1 && (
               <button
                 className="link-btn danger"
@@ -141,7 +207,7 @@ export function SettingsView({ data }: { data: AppData }) {
             )}
           </div>
         ))}
-        <button className="btn" onClick={() => db.members.add({ name: '新しい人', payday: 25, takeHome: 0 })}>
+        <button className="btn" onClick={() => db.members.add(newMember('新しい人'))}>
           ＋ 人を追加
         </button>
       </section>

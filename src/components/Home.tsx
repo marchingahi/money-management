@@ -1,7 +1,9 @@
-import { summarize, upcomingBillings } from '../lib/budget'
+import { useState } from 'react'
+import { summarize, upcomingBillings, type IncomeStatus } from '../lib/budget'
 import { cycleOf, formatMD, fromYMD, shiftCycle, todayYMD } from '../lib/dates'
 import { FIXED_CATEGORY, type Transaction } from '../lib/types'
 import { dayLabel, yen, type AppData } from '../useData'
+import { IncomeForm } from './IncomeForm'
 
 interface Props {
   data: AppData
@@ -9,10 +11,11 @@ interface Props {
 }
 
 export function Home({ data, onEntry }: Props) {
-  const { settings, members, methods, fixedCosts, transactions } = data
+  const { settings, members, incomes, methods, fixedCosts, transactions } = data
+  const [editingIncome, setEditingIncome] = useState<IncomeStatus | null>(null)
   const today = todayYMD()
   const cycle = cycleOf(today, settings.cycleStartDay)
-  const s = summarize(cycle, today, members, fixedCosts, transactions, settings)
+  const s = summarize(cycle, today, members, incomes, fixedCosts, transactions, settings)
   const billings = upcomingBillings(today, methods, transactions, fixedCosts, [
     cycle,
     shiftCycle(cycle, 1, settings.cycleStartDay),
@@ -36,7 +39,7 @@ export function Home({ data, onEntry }: Props) {
           {formatMD(cycle.start)} 〜 {formatMD(cycle.end)} のサイクル
         </p>
         {needsSetup ? (
-          <p className="setup-note">「設定」で手取り額を入力すると、使える金額が表示されます。</p>
+          <p className="setup-note">「設定」で手取りの見込み額を入力すると、使える金額が表示されます。</p>
         ) : (
           <>
             <p className="hero-label">あと使える額</p>
@@ -54,12 +57,19 @@ export function Home({ data, onEntry }: Props) {
                 <dt>世帯の手取り</dt>
                 <dd>{yen(s.income)}</dd>
               </div>
-              {members.map((m) => (
-                <div key={m.id} className="sub">
+              {s.incomes.map((i) => (
+                <div key={i.member.id} className="sub">
                   <dt>
-                    {m.name}（{dayLabel(m.payday)}）
+                    {i.member.name}（{dayLabel(i.member.payday)}）
+                    <span className={`badge ${i.actual != null ? 'ok' : 'est'}`}>
+                      {i.actual != null ? '実額' : '見込み'}
+                    </span>
                   </dt>
-                  <dd>{yen(m.takeHome)}</dd>
+                  <dd>
+                    <button className="link-btn" onClick={() => setEditingIncome(i)}>
+                      {yen(i.amount)} ✎
+                    </button>
+                  </dd>
                 </div>
               ))}
               <div>
@@ -143,6 +153,7 @@ export function Home({ data, onEntry }: Props) {
           </ul>
         </section>
       )}
+      {editingIncome && <IncomeForm status={editingIncome} cycle={cycle} onClose={() => setEditingIncome(null)} />}
     </div>
   )
 }

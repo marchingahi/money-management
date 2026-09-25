@@ -1,10 +1,11 @@
 import { useLiveQuery } from 'dexie-react-hooks'
 import { db } from './db'
-import type { FixedCost, Member, PaymentMethod, Settings, Transaction } from './lib/types'
+import type { FixedCost, Income, Member, PaymentMethod, Settings, Transaction } from './lib/types'
 
 export interface AppData {
   settings: Settings
   members: Member[]
+  incomes: Income[]
   methods: PaymentMethod[]
   fixedCosts: FixedCost[]
   transactions: Transaction[]
@@ -12,15 +13,16 @@ export interface AppData {
 
 export function useData(): AppData | undefined {
   return useLiveQuery(async () => {
-    const [settings, members, methods, fixedCosts, transactions] = await Promise.all([
+    const [settings, members, incomes, methods, fixedCosts, transactions] = await Promise.all([
       db.settings.get('main'),
       db.members.toArray(),
+      db.incomes.toArray(),
       db.methods.orderBy('order').toArray(),
       db.fixedCosts.toArray(),
       db.transactions.orderBy('date').reverse().toArray(),
     ])
     if (!settings) return undefined
-    return { settings, members, methods, fixedCosts, transactions }
+    return { settings, members, incomes, methods, fixedCosts, transactions }
   })
 }
 

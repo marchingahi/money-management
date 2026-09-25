@@ -1,13 +1,31 @@
 /** 日付はすべてローカル日付の 'yyyy-MM-dd' 文字列で保持する */
 export type YMD = string
 
+export type PayType = 'monthly' | 'hourly'
+
 export interface Member {
   id?: number
   name: string
   /** 給料日（1〜31、31 は月末扱い） */
   payday: number
-  /** 手取り月額 */
+  payType: PayType
+  /** 月給の場合の手取り見込み額 */
   takeHome: number
+  /** 以下は時給の場合の見込み計算用 */
+  hourlyWage: number
+  hoursPerDay: number
+  daysPerMonth: number
+  /** 税・社会保険などの控除率（%） */
+  deductionRate: number
+}
+
+/** あるサイクルに実際に振り込まれた手取り額 */
+export interface Income {
+  id?: number
+  memberId: number
+  /** 対象サイクルの開始日 */
+  cycleStart: YMD
+  amount: number
 }
 
 export type MethodKind = 'credit' | 'debit' | 'qr' | 'cash'

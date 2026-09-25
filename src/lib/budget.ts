@@ -1,6 +1,6 @@
 import { billingOf } from './billing'
 import { daysBetween, dayWithinCycle, type Cycle } from './dates'
-import type { FixedCost, Member, PaymentMethod, Settings, Transaction, YMD } from './types'
+import type { FixedCost, Income, Member, PaymentMethod, Settings, Transaction, YMD } from './types'
 
 export interface FixedStatus {
   cost: FixedCost
@@ -11,8 +11,17 @@ export interface FixedStatus {
   reserved: number
 }
 
+export interface IncomeStatus {
+  member: Member
+  estimate: number
+  /** このサイクルの実額（入力済みの場合） */
+  actual?: number
+  amount: number
+}
+
 export interface BudgetSummary {
   income: number
+  incomes: IncomeStatus[]
   fixedTotal: number
   savings: number
   /** 自由に使える予算 = 収入 − 固定費 − 先取り貯金 */
@@ -36,15 +45,31 @@ export function fixedStatuses(fixedCosts: FixedCost[], txs: Transaction[], cycle
   })
 }
 
+/** 見込み手取り。時給の場合は 時給 × 時間 × 日数 × (1 − 控除率) */
+export function expectedTakeHome(m: Member): number {
+  if (m.payType !== 'hourly') return m.takeHome
+  return Math.floor(m.hourlyWage * m.hoursPerDay * m.daysPerMonth * (1 - m.deductionRate / 100))
+}
+
+export function incomeStatuses(members: Member[], incomes: Income[], cycle: Cycle): IncomeStatus[] {
+  return members.map((member) => {
+    const estimate = expectedTakeHome(member)
+    const actual = incomes.find((i) => i.memberId === member.id && i.cycleStart === cycle.start)?.amount
+    return { member, estimate, actual, amount: actual ?? estimate }
+  })
+}
+
 export function summarize(
   cycle: Cycle,
   today: YMD,
   members: Member[],
+  incomeRecords: Income[],
   fixedCosts: FixedCost[],
   txs: Transaction[],
   settings: Settings,
 ): BudgetSummary {
-  const income = members.reduce((s, m) => s + m.takeHome, 0)
+  const incomes = incomeStatuses(members, incomeRecords, cycle)
+  const income = incomes.reduce((s, i) => s + i.amount, 0)
   const fixed = fixedStatuses(fixedCosts, txs, cycle)
   const fixedTotal = fixed.reduce((s, f) => s + f.reserved, 0)
   const budget = income - fixedTotal - settings.savings
@@ -54,7 +79,7 @@ export function summarize(
   const remaining = budget - spent
   const daysLeft = inCycle(today, cycle) ? daysBetween(today, cycle.end) + 1 : null
   const perDay = daysLeft ? Math.floor(Math.max(remaining, 0) / daysLeft) : null
-  return { income, fixedTotal, savings: settings.savings, budget, spent, remaining, daysLeft, perDay, fixed }
+  return { income, incomes, fixedTotal, savings: settings.savings, budget, spent, remaining, daysLeft, perDay, fixed }
 }
 
 export interface UpcomingBilling {

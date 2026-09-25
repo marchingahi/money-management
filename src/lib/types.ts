@@ -44,6 +44,16 @@ export interface Income {
   amount: number
 }
 
+/** 口座間の振替（家計全体のお金は増減しない） */
+export interface Transfer {
+  id?: string
+  date: YMD
+  amount: number
+  fromAccountId: string
+  toAccountId: string
+  memo: string
+}
+
 export type MethodKind = 'credit' | 'debit' | 'qr' | 'cash'
 
 export interface PaymentMethod {

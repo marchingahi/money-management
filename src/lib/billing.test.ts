@@ -189,6 +189,38 @@ describe('summarize', () => {
     ])
   })
 
+  it('projectAccounts: 口座間の振替で不足を補える（家計全体の残りは変わらない）', () => {
+    const methods = [{ ...olive, accountId: 'A' }, { ...saison, accountId: 'B' }]
+    const people = [
+      { ...husband, accountId: 'A' },
+      { ...wife, accountId: 'B' },
+    ]
+    const txs = [{ id: '3', date: '2026-09-05', amount: 7000, category: '食費', methodId: '3', memo: '' }] // B: 10/5 引落
+    const accounts: Account[] = [
+      { id: 'A', name: '三井住友', order: 1, balance: 50000, balanceDate: '2026-09-25' },
+      { id: 'B', name: '楽天', order: 2, balance: 5000, balanceDate: '2026-09-25' },
+    ]
+    const flows = outflows('2026-09-25', methods, txs, [], [])
+    const cf = cashflowFor(cycle, people, [], flows, settings)
+    const before = projectAccounts([cf], accounts, settings)![0]
+    expect(before.accounts[1].shortage).toMatchObject({ date: '2026-10-05', balance: -2000 })
+
+    // 引落と同じ日に振り替えても、入金を先に数えるので不足にならない
+    const transfers = [{ id: 't1', date: '2026-10-05', amount: 3000, fromAccountId: 'A', toAccountId: 'B', memo: '' }]
+    const [after] = projectAccounts([cf], accounts, settings, transfers)!
+    expect(after.accounts.map((a) => [a.closing, a.shortage])).toEqual([
+      [47000, null],
+      [1000, null],
+    ])
+    expect(after.closing).toBe(before.closing)
+    // サイクル外の振替や、登録されていない口座への振替は無視
+    const ignored = [
+      { id: 't2', date: '2026-11-01', amount: 3000, fromAccountId: 'A', toAccountId: 'B', memo: '' },
+      { id: 't3', date: '2026-10-01', amount: 3000, fromAccountId: 'A', toAccountId: 'X', memo: '' },
+    ]
+    expect(projectAccounts([cf], accounts, settings, ignored)![0].accounts[1].closing).toBe(-2000)
+  })
+
   it('projectAccounts: 残高を入れた口座がなければ null', () => {
     const cf = cashflowFor(cycle, members, [], [], settings)
     expect(projectAccounts([cf], [{ id: 'A', name: 'x', order: 1 }], settings)).toBeNull()

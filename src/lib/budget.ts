@@ -1,6 +1,6 @@
 import { billingOf } from './billing'
 import { daysBetween, dayWithinCycle, type Cycle } from './dates'
-import { FIXED_CATEGORY, type Account, type FixedCost, type Income, type Member, type PaymentMethod, type Settings, type Transaction, type YMD } from './types'
+import { FIXED_CATEGORY, type Account, type Transfer, type FixedCost, type Income, type Member, type PaymentMethod, type Settings, type Transaction, type YMD } from './types'
 
 export interface FixedStatus {
   cost: FixedCost
@@ -240,8 +240,13 @@ export function accountResolver(accounts: Account[]) {
   }
 }
 
-/** あるサイクルの収支を、口座ごとの入出金の予定に分解する */
-export function cycleEvents(cf: CycleCashflow, accounts: Account[], settings: Settings): AccountEvent[] {
+/** あるサイクルの収支と口座間の振替を、口座ごとの入出金の予定に分解する */
+export function cycleEvents(
+  cf: CycleCashflow,
+  accounts: Account[],
+  settings: Settings,
+  transfers: Transfer[] = [],
+): AccountEvent[] {
   const resolve = accountResolver(accounts)
   const events: AccountEvent[] = []
   const push = (e: Omit<AccountEvent, 'accountId'>, explicit?: string) => {
@@ -269,7 +274,17 @@ export function cycleEvents(cf: CycleCashflow, accounts: Account[], settings: Se
     { key: `savings@${cf.cycle.start}`, date: cf.cycle.start, amount: -cf.savings, label: '先取り貯金' },
     settings.savingsAccountId,
   )
-  return events.sort((a, b) => a.date.localeCompare(b.date))
+  // 振替は両方の口座が登録されているものだけ（家計全体では増減しない）
+  const ids = new Set(accounts.map((a) => a.id))
+  for (const t of transfers) {
+    if (!inCycle(t.date, cf.cycle) || !ids.has(t.fromAccountId) || !ids.has(t.toAccountId)) continue
+    const from = accounts.find((a) => a.id === t.fromAccountId)!.name
+    const to = accounts.find((a) => a.id === t.toAccountId)!.name
+    events.push({ key: `transfer:${t.id}:out`, date: t.date, amount: -t.amount, accountId: t.fromAccountId, label: `${to}へ振替` })
+    events.push({ key: `transfer:${t.id}:in`, date: t.date, amount: t.amount, accountId: t.toAccountId, label: `${from}から振替` })
+  }
+  // 同じ日は入金を先に数える（振替で補った日に引落があっても不足扱いにしない）
+  return events.sort((a, b) => a.date.localeCompare(b.date) || b.amount - a.amount)
 }
 
 /** 予定が口座残高にすでに反映されているか（残高入力日より前、または当日で未反映に指定されていない） */
@@ -303,13 +318,14 @@ export function projectAccounts(
   cashflows: CycleCashflow[],
   accounts: Account[],
   settings: Settings,
+  transfers: Transfer[] = [],
 ): CycleCarry[] | null {
   const tracked = accounts.filter((a) => a.balance != null && a.balanceDate)
   if (!tracked.length) return null
   const running = new Map(tracked.map((a) => [a.id!, a.balance!]))
 
   return cashflows.map((cf) => {
-    const events = cycleEvents(cf, accounts, settings)
+    const events = cycleEvents(cf, accounts, settings, transfers)
     const carries = tracked.map((account) => {
       const opening = running.get(account.id!)!
       let balance = opening

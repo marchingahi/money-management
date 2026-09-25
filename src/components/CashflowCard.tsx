@@ -8,11 +8,13 @@ import {
   type IncomeStatus,
   type Outflow,
 } from '../lib/budget'
-import { formatMD, fromYMD, type Cycle } from '../lib/dates'
-import type { Account, PaymentMethod, YMD } from '../lib/types'
+import { addDays } from 'date-fns'
+import { formatMD, fromYMD, toYMD, todayYMD, type Cycle } from '../lib/dates'
+import type { Account, PaymentMethod, Transfer, YMD } from '../lib/types'
 import { yen, type AppData } from '../useData'
 import { BalanceForm } from './BalanceForm'
 import { IncomeForm } from './IncomeForm'
+import { TransferForm } from './TransferForm'
 
 interface Props {
   data: AppData
@@ -32,16 +34,17 @@ const NEW_ACCOUNT = '__new'
 
 /** 給料ごとに「その期間の引落・支払いを済ませたあと、いくら残るか」を表示する */
 export function CashflowCard({ data, cycles, leadCycles, flows }: Props) {
-  const { settings, accounts } = data
+  const { settings, accounts, transfers } = data
   // 今カードで使った分が引き落とされるのは主に次の給料なので、次の給料を初期表示にする
   const [selected, setSelected] = useState(Math.min(1, cycles.length - 1))
   const [editingIncome, setEditingIncome] = useState<IncomeStatus | null>(null)
   const [editingAccount, setEditingAccount] = useState<Account | null>(null)
+  const [editingTransfer, setEditingTransfer] = useState<Partial<Transfer> | null>(null)
 
   const toCashflow = (c: Cycle) => cashflowFor(c, data.members, data.incomes, flows, settings)
   const lead = leadCycles.map(toCashflow)
   const all = cycles.map(toCashflow)
-  const carries = projectAccounts([...lead, ...all], accounts, settings)?.slice(lead.length) ?? null
+  const carries = projectAccounts([...lead, ...all], accounts, settings, transfers)?.slice(lead.length) ?? null
 
   const cf = all[selected]
   const carry = carries?.[selected]
@@ -53,7 +56,7 @@ export function CashflowCard({ data, cycles, leadCycles, flows }: Props) {
   const untracked = accounts.filter((a) => a.balance == null || !a.balanceDate)
 
   // 各予定が、口座残高に反映済みか
-  const events = new Map(cycleEvents(cf, accounts, settings).map((e) => [e.key, e]))
+  const events = new Map(cycleEvents(cf, accounts, settings, transfers).map((e) => [e.key, e]))
   const settled = (key: string) => {
     const e = events.get(key)
     const a = e && tracked(e.accountId)
@@ -69,7 +72,7 @@ export function CashflowCard({ data, cycles, leadCycles, flows }: Props) {
     const list = accountId ? accounts : [...accounts, { id: NEW_ACCOUNT, name: '', order: 0 }]
     const target = accountId ?? NEW_ACCOUNT
     return [...lead, ...all]
-      .flatMap((c) => cycleEvents(c, list, settings))
+      .flatMap((c) => cycleEvents(c, list, settings, transfers))
       .filter((e) => e.accountId === target && e.date === date)
   }
 
@@ -92,6 +95,21 @@ export function CashflowCard({ data, cycles, leadCycles, flows }: Props) {
   }
 
   const nextOrder = Math.max(0, ...accounts.map((a) => a.order)) + 1
+  const cycleTransfers = transfers.filter((t) => t.date >= cf.cycle.start && t.date <= cf.cycle.end)
+
+  /** 残高不足を補う振替の初期値: 不足額（千円単位で切り上げ）を、引落の前日（今日より前なら今日）に、一番余裕のある口座から */
+  const coverShortage = (accountId: string, date: YMD, balance: number) => {
+    const donor = carry?.accounts
+      .filter((c) => c.account.id !== accountId)
+      .sort((a, b) => b.closing - a.closing)[0]
+    const day = toYMD(addDays(fromYMD(date), -1))
+    setEditingTransfer({
+      amount: Math.ceil(-balance / 1000) * 1000,
+      toAccountId: accountId,
+      fromAccountId: donor?.account.id,
+      date: day < todayYMD() ? todayYMD() : day,
+    })
+  }
 
   return (
     <section className="card cashflow">
@@ -152,6 +170,13 @@ export function CashflowCard({ data, cycles, leadCycles, flows }: Props) {
             </button>
           </li>
         ))}
+        {accounts.length >= 2 && (
+          <li>
+            <button className="link-btn" onClick={() => setEditingTransfer({})}>
+              ＋ 口座間の振替を記録する
+            </button>
+          </li>
+        )}
         {accounts.length === 0 && (
           <li>
             <button
@@ -244,6 +269,22 @@ export function CashflowCard({ data, cycles, leadCycles, flows }: Props) {
             <span className="amount">−{yen(cf.savings)}</span>
           </li>
         )}
+        {cycleTransfers.map((t) => {
+          const done = settled(`transfer:${t.id}:out`) && settled(`transfer:${t.id}:in`)
+          return (
+            <li key={t.id} className={`clickable ${done ? 'done' : ''}`} onClick={() => setEditingTransfer(t)}>
+              <span className="date">{formatMD(t.date)}</span>
+              <span className="grow">
+                <span>
+                  振替 {accountById.get(t.fromAccountId)?.name} → {accountById.get(t.toAccountId)?.name}
+                  {done && doneBadge}
+                </span>
+                {t.memo && <span className="muted small">{t.memo}</span>}
+              </span>
+              <span className="amount transfer">{yen(t.amount)}</span>
+            </li>
+          )
+        })}
         {carry ? (
           <>
             <li className="cf-sub">
@@ -275,6 +316,14 @@ export function CashflowCard({ data, cycles, leadCycles, flows }: Props) {
           <p key={c.account.id} className="cf-warn neg">
             ⚠ {formatMD(c.shortage!.date)}の{c.shortage!.label}で、{c.account.name}の残高が{yen(c.shortage!.balance)}
             になります。事前に入金が必要です。
+            {accounts.length >= 2 && (
+              <button
+                className="link-btn warn-action"
+                onClick={() => coverShortage(c.account.id!, c.shortage!.date, c.shortage!.balance)}
+              >
+                振替で補う
+              </button>
+            )}
           </p>
         ))}
       {cf.open && (
@@ -288,6 +337,9 @@ export function CashflowCard({ data, cycles, leadCycles, flows }: Props) {
 
       {editingIncome && (
         <IncomeForm status={editingIncome} cycle={cf.cycle} onClose={() => setEditingIncome(null)} />
+      )}
+      {editingTransfer && (
+        <TransferForm accounts={accounts} initial={editingTransfer} onClose={() => setEditingTransfer(null)} />
       )}
       {editingAccount && (
         <BalanceForm account={editingAccount} eventsOn={eventsOn} onClose={() => setEditingAccount(null)} />

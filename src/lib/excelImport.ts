@@ -132,7 +132,7 @@ const key = (s: string) =>
     .replace(/カード|card|\s/g, '')
 
 /** Excel の支払方法名に対応するアプリの支払い方法を推測する */
-export function guessMethod(excelName: string, methods: PaymentMethod[]): number | undefined {
+export function guessMethod(excelName: string, methods: PaymentMethod[]): string | undefined {
   const k = key(excelName)
   const exact = methods.find((m) => key(m.name) === k)
   if (exact) return exact.id
@@ -159,7 +159,7 @@ export interface ImportPlan {
  */
 export function planImport(
   rows: ExcelRow[],
-  mapping: Record<string, number | undefined>,
+  mapping: Record<string, string | undefined>,
   methods: PaymentMethod[],
   existingKeys: Set<string>,
 ): ImportPlan {

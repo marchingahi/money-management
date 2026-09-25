@@ -4,7 +4,7 @@ export type YMD = string
 export type PayType = 'monthly' | 'hourly'
 
 export interface Member {
-  id?: number
+  id?: string
   name: string
   /** 給料日（1〜31、31 は月末扱い） */
   payday: number
@@ -21,8 +21,8 @@ export interface Member {
 
 /** あるサイクルに実際に振り込まれた手取り額 */
 export interface Income {
-  id?: number
-  memberId: number
+  id?: string
+  memberId: string
   /** 対象サイクルの開始日 */
   cycleStart: YMD
   amount: number
@@ -31,7 +31,7 @@ export interface Income {
 export type MethodKind = 'credit' | 'debit' | 'qr' | 'cash'
 
 export interface PaymentMethod {
-  id?: number
+  id?: string
   name: string
   kind: MethodKind
   /** 締め日（1〜31、31 は月末）。credit のみ使用 */
@@ -41,29 +41,29 @@ export interface PaymentMethod {
   /** 締め月から何ヶ月後に引き落とされるか（翌月払い = 1） */
   monthOffset: number
   /** カード名義人。未設定なら共通 */
-  ownerId?: number
+  ownerId?: string
   order: number
 }
 
 export interface FixedCost {
-  id?: number
+  id?: string
   name: string
   /** 見込み額。実額が入力されるまでこの金額で予算を確保する */
   amount: number
   /** 毎月の利用（計上）日 */
   day: number
-  methodId: number
+  methodId: string
 }
 
 export interface Transaction {
-  id?: number
+  id?: string
   date: YMD
   amount: number
   category: string
-  methodId: number
+  methodId: string
   memo: string
   /** 固定費の実額として入力された場合の紐付け */
-  fixedCostId?: number
+  fixedCostId?: string
   /**
    * 引落月の指定（'yyyy-MM'）。締め日からの計算と実際の請求がずれる場合
    * （月末の公共料金が翌月請求に回る、返金の処理が遅れる等）に使う
@@ -79,6 +79,9 @@ export interface Settings {
   cycleStartDay: number
   /** 先取り貯金額 */
   savings: number
+  /** 口座残高（複数口座なら合計）。この日までの入出金が反映済みの額 */
+  balance?: number
+  balanceDate?: YMD
 }
 
 export const CATEGORIES = [

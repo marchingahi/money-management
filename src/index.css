@@ -170,3 +170,12 @@ input, select { width: 100%; padding: 9px 10px; border: 1px solid var(--border);
 @media (min-width: 960px) {
   .home .cashflow { grid-column: 1 / -1; }
 }
+
+/* 繰越・同期 */
+.list li.done { color: var(--muted); }
+.list li.done .amount { text-decoration: line-through; font-weight: 400; }
+.list li.cf-opening { font-weight: 600; }
+.list li.cf-sub { font-size: 13px; color: var(--muted); }
+.sync-state { margin: 6px 0; font-size: 14px; font-weight: 600; color: var(--ok-text); }
+.sync-state.error, .sync-state.offline { color: var(--warn-text); }
+.sync-form { margin-top: 10px; }

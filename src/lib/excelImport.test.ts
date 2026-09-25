@@ -6,7 +6,7 @@ import { guessMethod, parseSheet, planImport, toDate, toPaymentMonth } from './e
 import type { PaymentMethod } from './types'
 
 const credit = (id: number, name: string, closingDay: number, paymentDay: number): PaymentMethod => ({
-  id,
+  id: String(id),
   name,
   kind: 'credit',
   closingDay,
@@ -23,7 +23,7 @@ const methods: PaymentMethod[] = [
   credit(6, 'エポス', 4, 4),
   credit(7, 'ルミネ', 5, 4),
   credit(8, 'イオン', 10, 2),
-  { id: 9, name: '現金', kind: 'cash', closingDay: 31, paymentDay: 31, monthOffset: 0, order: 9 },
+  { id: '9', name: '現金', kind: 'cash', closingDay: 31, paymentDay: 31, monthOffset: 0, order: 9 },
 ]
 
 // 2026-04-05 のシリアル値
@@ -46,14 +46,14 @@ describe('値の変換', () => {
 
 describe('guessMethod', () => {
   it.each([
-    ['EPOSカード', 6],
-    ['JALカード', 4],
-    ['LUMINEカード', 7],
-    ['Olive', 1],
-    ['PayPay', 2],
-    ['SAISON', 3],
-    ['JCB W', 5],
-    ['現金', 9],
+    ['EPOSカード', '6'],
+    ['JALカード', '4'],
+    ['LUMINEカード', '7'],
+    ['Olive', '1'],
+    ['PayPay', '2'],
+    ['SAISON', '3'],
+    ['JCB W', '5'],
+    ['現金', '9'],
     ['楽天カード', undefined],
   ])('%s → %s', (name, id) => {
     expect(guessMethod(name, methods)).toBe(id)

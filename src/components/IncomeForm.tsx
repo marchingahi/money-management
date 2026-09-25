@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { db } from '../db'
+import { repo } from '../repo'
 import type { IncomeStatus } from '../lib/budget'
 import { formatMD, type Cycle } from '../lib/dates'
 import { yen } from '../useData'
@@ -17,18 +18,26 @@ export function IncomeForm({ status, cycle, onClose }: Props) {
   const value = Number(amount || 0)
 
   const findRecord = () =>
-    db.incomes.where('memberId').equals(member.id!).filter((i) => i.cycleStart === cycle.start).first()
+    db.incomes
+      .where('memberId')
+      .equals(member.id!)
+      .filter((i) => i.cycleStart === cycle.start && !i.deleted)
+      .first()
 
   const save = async () => {
     const existing = await findRecord()
-    if (existing) await db.incomes.update(existing.id!, { amount: value })
-    else await db.incomes.add({ memberId: member.id!, cycleStart: cycle.start, amount: value })
+    if (existing) await repo.update('incomes', existing.id, { amount: value })
+    // 人×サイクルで決まる ID にして、別の端末で同じ月を入力しても 1 件にまとまるようにする
+    else {
+      const id = `${member.id}@${cycle.start}`
+      await repo.put('incomes', { id, memberId: member.id!, cycleStart: cycle.start, amount: value })
+    }
     onClose()
   }
 
   const clear = async () => {
     const existing = await findRecord()
-    if (existing) await db.incomes.delete(existing.id!)
+    if (existing) await repo.remove('incomes', existing.id)
     onClose()
   }
 

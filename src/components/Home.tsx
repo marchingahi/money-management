@@ -19,9 +19,16 @@ export function Home({ data, onEntry }: Props) {
   const s = summarize(cycle, today, members, incomes, fixedCosts, transactions, settings)
   const cycles = [0, 1, 2].map((n) => shiftCycle(cycle, n, settings.cycleStartDay))
   const flows = outflows(today, methods, transactions, fixedCosts, cycles)
+  // 口座残高の入力日が今のサイクルより前なら、そこから今のサイクルの手前まで（最大6回分）も繰越の計算に使う
+  const leadCycles: typeof cycles = []
+  if (settings.balanceDate && settings.balanceDate < cycle.start) {
+    for (let n = -1; n >= -6 && shiftCycle(cycle, n + 1, settings.cycleStartDay).start > settings.balanceDate; n--) {
+      leadCycles.unshift(shiftCycle(cycle, n, settings.cycleStartDay))
+    }
+  }
   const billings = flows.filter((o) => o.method.kind === 'credit' && o.paymentDate >= today)
-  const memberName = (id?: number) => members.find((m) => m.id === id)?.name
-  const methodName = (id: number) => methods.find((m) => m.id === id)?.name ?? '（削除済み）'
+  const memberName = (id?: string) => members.find((m) => m.id === id)?.name
+  const methodName = (id: string) => methods.find((m) => m.id === id)?.name ?? '（削除済み）'
   const usedRatio = s.budget > 0 ? Math.min(s.spent / s.budget, 1) : 1
   const needsSetup = s.income === 0
 
@@ -34,7 +41,7 @@ export function Home({ data, onEntry }: Props) {
 
   return (
     <div className="home">
-      {!needsSetup && <CashflowCard data={data} cycles={cycles} flows={flows} />}
+      {!needsSetup && <CashflowCard data={data} cycles={cycles} leadCycles={leadCycles} flows={flows} />}
       <section className="card hero">
         <p className="muted">
           {formatMD(cycle.start)} 〜 {formatMD(cycle.end)} のサイクル

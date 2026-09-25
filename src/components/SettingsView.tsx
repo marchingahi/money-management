@@ -1,10 +1,13 @@
 import { useState, type ChangeEvent } from 'react'
-import { db, exportBackup, importBackup, newMember, type Backup } from '../db'
+import { backupToDataSet, exportBackup } from '../db'
+import { newMember } from '../lib/seed'
+import { repo } from '../repo'
 import { expectedTakeHome } from '../lib/budget'
 import { todayYMD } from '../lib/dates'
 import { KIND_LABEL, type MethodKind, type PayType } from '../lib/types'
 import { dayLabel, yen, type AppData } from '../useData'
 import { ImportSheet } from './ImportSheet'
+import { SyncSection } from './SyncSection'
 
 /*
  * 入力のたびに即保存する。フォーカスが外れたときに保存する方式だと、iPhone で
@@ -69,24 +72,23 @@ export function SettingsView({ data }: { data: AppData }) {
   const [message, setMessage] = useState('')
   const [importing, setImporting] = useState(false)
 
-  const deleteMethod = async (id: number) => {
+  const deleteMethod = async (id: string) => {
     const used =
       transactions.some((t) => t.methodId === id) || fixedCosts.some((f) => f.methodId === id)
     if (used) {
       alert('この支払い方法を使っている支出や固定費があるため削除できません')
       return
     }
-    if (confirm('この支払い方法を削除しますか？')) await db.methods.delete(id)
+    if (confirm('この支払い方法を削除しますか？')) await repo.remove('methods', id)
   }
 
-  const deleteFixed = async (id: number) => {
+  const deleteFixed = async (id: string) => {
     if (!confirm('この固定費を削除しますか？（入力済みの実額は残ります）')) return
-    await db.transaction('rw', db.fixedCosts, db.transactions, async () => {
-      await db.fixedCosts.delete(id)
-      await db.transactions.where('fixedCostId').equals(id).modify((t) => {
-        delete t.fixedCostId
-      })
-    })
+    await repo.remove('fixedCosts', id)
+    // 入力済みの実額は「固定費」カテゴリの支出として残す
+    for (const t of transactions.filter((t) => t.fixedCostId === id)) {
+      await repo.update('transactions', t.id, { fixedCostId: undefined })
+    }
   }
 
   const download = async () => {
@@ -104,7 +106,7 @@ export function SettingsView({ data }: { data: AppData }) {
     e.target.value = ''
     if (!file || !confirm('現在のデータをすべて置き換えます。よろしいですか？')) return
     try {
-      await importBackup(JSON.parse(await file.text()) as Backup)
+      await repo.replaceAll(backupToDataSet(JSON.parse(await file.text())))
       setMessage('復元しました')
     } catch (err) {
       setMessage(`復元に失敗しました: ${err instanceof Error ? err.message : String(err)}`)
@@ -113,6 +115,7 @@ export function SettingsView({ data }: { data: AppData }) {
 
   return (
     <div className="settings">
+      <SyncSection />
       <section className="card">
         <h2>家計</h2>
         <div className="form-grid">
@@ -120,12 +123,12 @@ export function SettingsView({ data }: { data: AppData }) {
             サイクル開始日（給料日）
             <DaySelect
               value={settings.cycleStartDay}
-              onChange={(v) => db.settings.update('main', { cycleStartDay: v })}
+              onChange={(v) => repo.update('settings', 'main', { cycleStartDay: v })}
             />
           </label>
           <label>
             先取り貯金（月額）
-            <NumInput value={settings.savings} onCommit={(v) => db.settings.update('main', { savings: v })} />
+            <NumInput value={settings.savings} onCommit={(v) => repo.update('settings', 'main', { savings: v })} />
           </label>
         </div>
       </section>
@@ -140,17 +143,17 @@ export function SettingsView({ data }: { data: AppData }) {
             <div className="form-grid">
               <label>
                 名前
-                <TextInput value={m.name} onCommit={(v) => db.members.update(m.id!, { name: v })} />
+                <TextInput value={m.name} onCommit={(v) => repo.update('members', m.id, { name: v })} />
               </label>
               <label>
                 給料日
-                <DaySelect value={m.payday} onChange={(v) => db.members.update(m.id!, { payday: v })} />
+                <DaySelect value={m.payday} onChange={(v) => repo.update('members', m.id, { payday: v })} />
               </label>
               <label>
                 給与形態
                 <select
                   value={m.payType}
-                  onChange={(e) => db.members.update(m.id!, { payType: e.target.value as PayType })}
+                  onChange={(e) => repo.update('members', m.id, { payType: e.target.value as PayType })}
                 >
                   <option value="monthly">月給</option>
                   <option value="hourly">時給</option>
@@ -159,27 +162,27 @@ export function SettingsView({ data }: { data: AppData }) {
               {m.payType === 'monthly' ? (
                 <label>
                   手取り見込み（月額）
-                  <NumInput value={m.takeHome} onCommit={(v) => db.members.update(m.id!, { takeHome: v })} />
+                  <NumInput value={m.takeHome} onCommit={(v) => repo.update('members', m.id, { takeHome: v })} />
                 </label>
               ) : (
                 <>
                   <label>
                     時給
-                    <NumInput value={m.hourlyWage} onCommit={(v) => db.members.update(m.id!, { hourlyWage: v })} />
+                    <NumInput value={m.hourlyWage} onCommit={(v) => repo.update('members', m.id, { hourlyWage: v })} />
                   </label>
                   <label>
                     1日の勤務時間
                     <NumInput
                       decimal
                       value={m.hoursPerDay}
-                      onCommit={(v) => db.members.update(m.id!, { hoursPerDay: v })}
+                      onCommit={(v) => repo.update('members', m.id, { hoursPerDay: v })}
                     />
                   </label>
                   <label>
                     月の勤務日数
                     <NumInput
                       value={m.daysPerMonth}
-                      onCommit={(v) => db.members.update(m.id!, { daysPerMonth: v })}
+                      onCommit={(v) => repo.update('members', m.id, { daysPerMonth: v })}
                     />
                   </label>
                   <label>
@@ -187,7 +190,7 @@ export function SettingsView({ data }: { data: AppData }) {
                     <NumInput
                       decimal
                       value={m.deductionRate}
-                      onCommit={(v) => db.members.update(m.id!, { deductionRate: Math.min(v, 100) })}
+                      onCommit={(v) => repo.update('members', m.id, { deductionRate: Math.min(v, 100) })}
                     />
                   </label>
                 </>
@@ -202,14 +205,14 @@ export function SettingsView({ data }: { data: AppData }) {
             {members.length > 1 && (
               <button
                 className="link-btn danger"
-                onClick={() => confirm(`${m.name}を削除しますか？`) && db.members.delete(m.id!)}
+                onClick={() => confirm(`${m.name}を削除しますか？`) && repo.remove('members', m.id)}
               >
                 削除
               </button>
             )}
           </div>
         ))}
-        <button className="btn" onClick={() => db.members.add(newMember('新しい人'))}>
+        <button className="btn" onClick={() => repo.add('members', newMember('新しい人'))}>
           ＋ 人を追加
         </button>
       </section>
@@ -222,13 +225,13 @@ export function SettingsView({ data }: { data: AppData }) {
             <div className="form-grid">
               <label>
                 名前
-                <TextInput value={m.name} onCommit={(v) => db.methods.update(m.id!, { name: v })} />
+                <TextInput value={m.name} onCommit={(v) => repo.update('methods', m.id, { name: v })} />
               </label>
               <label>
                 種類
                 <select
                   value={m.kind}
-                  onChange={(e) => db.methods.update(m.id!, { kind: e.target.value as MethodKind })}
+                  onChange={(e) => repo.update('methods', m.id, { kind: e.target.value as MethodKind })}
                 >
                   {Object.entries(KIND_LABEL).map(([k, label]) => (
                     <option key={k} value={k}>
@@ -242,7 +245,7 @@ export function SettingsView({ data }: { data: AppData }) {
                 <select
                   value={m.ownerId ?? ''}
                   onChange={(e) =>
-                    db.methods.update(m.id!, { ownerId: e.target.value ? Number(e.target.value) : undefined })
+                    repo.update('methods', m.id, { ownerId: e.target.value || undefined })
                   }
                 >
                   <option value="">共通</option>
@@ -257,13 +260,13 @@ export function SettingsView({ data }: { data: AppData }) {
                 <>
                   <label>
                     締め日
-                    <DaySelect value={m.closingDay} onChange={(v) => db.methods.update(m.id!, { closingDay: v })} />
+                    <DaySelect value={m.closingDay} onChange={(v) => repo.update('methods', m.id, { closingDay: v })} />
                   </label>
                   <label>
                     支払月
                     <select
                       value={m.monthOffset}
-                      onChange={(e) => db.methods.update(m.id!, { monthOffset: Number(e.target.value) })}
+                      onChange={(e) => repo.update('methods', m.id, { monthOffset: Number(e.target.value) })}
                     >
                       <option value={1}>翌月</option>
                       <option value={2}>翌々月</option>
@@ -271,12 +274,12 @@ export function SettingsView({ data }: { data: AppData }) {
                   </label>
                   <label>
                     支払日
-                    <DaySelect value={m.paymentDay} onChange={(v) => db.methods.update(m.id!, { paymentDay: v })} />
+                    <DaySelect value={m.paymentDay} onChange={(v) => repo.update('methods', m.id, { paymentDay: v })} />
                   </label>
                 </>
               )}
             </div>
-            <button className="link-btn danger" onClick={() => deleteMethod(m.id!)}>
+            <button className="link-btn danger" onClick={() => deleteMethod(m.id)}>
               削除
             </button>
           </div>
@@ -284,7 +287,7 @@ export function SettingsView({ data }: { data: AppData }) {
         <button
           className="btn"
           onClick={() =>
-            db.methods.add({
+            repo.add('methods', {
               name: '新しいカード',
               kind: 'credit',
               closingDay: 31,
@@ -308,21 +311,21 @@ export function SettingsView({ data }: { data: AppData }) {
             <div className="form-grid">
               <label>
                 名前
-                <TextInput value={f.name} onCommit={(v) => db.fixedCosts.update(f.id!, { name: v })} />
+                <TextInput value={f.name} onCommit={(v) => repo.update('fixedCosts', f.id, { name: v })} />
               </label>
               <label>
                 見込み額
-                <NumInput value={f.amount} onCommit={(v) => db.fixedCosts.update(f.id!, { amount: v })} />
+                <NumInput value={f.amount} onCommit={(v) => repo.update('fixedCosts', f.id, { amount: v })} />
               </label>
               <label>
                 毎月の利用日
-                <DaySelect value={f.day} onChange={(v) => db.fixedCosts.update(f.id!, { day: v })} />
+                <DaySelect value={f.day} onChange={(v) => repo.update('fixedCosts', f.id, { day: v })} />
               </label>
               <label>
                 支払い方法
                 <select
                   value={f.methodId}
-                  onChange={(e) => db.fixedCosts.update(f.id!, { methodId: Number(e.target.value) })}
+                  onChange={(e) => repo.update('fixedCosts', f.id, { methodId: e.target.value })}
                 >
                   {methods.map((m) => (
                     <option key={m.id} value={m.id}>
@@ -332,7 +335,7 @@ export function SettingsView({ data }: { data: AppData }) {
                 </select>
               </label>
             </div>
-            <button className="link-btn danger" onClick={() => deleteFixed(f.id!)}>
+            <button className="link-btn danger" onClick={() => deleteFixed(f.id)}>
               削除
             </button>
           </div>
@@ -340,7 +343,7 @@ export function SettingsView({ data }: { data: AppData }) {
         <button
           className="btn"
           disabled={methods.length === 0}
-          onClick={() => db.fixedCosts.add({ name: '新しい固定費', amount: 0, day: 1, methodId: methods[0].id! })}
+          onClick={() => repo.add('fixedCosts', { name: '新しい固定費', amount: 0, day: 1, methodId: methods[0].id })}
         >
           ＋ 固定費を追加
         </button>

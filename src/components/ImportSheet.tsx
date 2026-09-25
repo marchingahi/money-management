@@ -1,5 +1,5 @@
 import { useMemo, useState, type ChangeEvent } from 'react'
-import { db } from '../db'
+import { repo } from '../repo'
 import { formatMD } from '../lib/dates'
 import { guessMethod, parseSheet, planImport, type ParseResult } from '../lib/excelImport'
 import { yen, type AppData } from '../useData'
@@ -28,7 +28,7 @@ async function readWorkbook(file: File): Promise<ParseResult> {
 
 export function ImportSheet({ data, onClose }: Props) {
   const [parsed, setParsed] = useState<ParseResult | null>(null)
-  const [mapping, setMapping] = useState<Record<string, number | undefined>>({})
+  const [mapping, setMapping] = useState<Record<string, string | undefined>>({})
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   const [done, setDone] = useState<number | null>(null)
@@ -72,7 +72,7 @@ export function ImportSheet({ data, onClose }: Props) {
     if (!plan?.transactions.length) return
     setBusy(true)
     try {
-      await db.transactions.bulkAdd(plan.transactions)
+      await repo.bulkAdd('transactions', plan.transactions)
       setDone(plan.transactions.length)
     } finally {
       setBusy(false)
@@ -128,7 +128,7 @@ export function ImportSheet({ data, onClose }: Props) {
                       className="map-select"
                       value={mapping[name] ?? ''}
                       onChange={(e) =>
-                        setMapping({ ...mapping, [name]: e.target.value ? Number(e.target.value) : undefined })
+                        setMapping({ ...mapping, [name]: e.target.value || undefined })
                       }
                     >
                       <option value="">取り込まない</option>

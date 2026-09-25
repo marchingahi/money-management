@@ -1,111 +1,135 @@
-import Dexie, { type EntityTable } from 'dexie'
+import Dexie, { type Table } from 'dexie'
+import { convertLegacy, type DataSet, type LegacyData } from './lib/legacy'
+import { SEED_MEMBERS, SEED_METHODS, SEED_SETTINGS } from './lib/seed'
 import type { FixedCost, Income, Member, PaymentMethod, Settings, Transaction } from './lib/types'
 
-export const db = new Dexie('money-management') as Dexie & {
-  members: EntityTable<Member, 'id'>
-  incomes: EntityTable<Income, 'id'>
-  methods: EntityTable<PaymentMethod, 'id'>
-  fixedCosts: EntityTable<FixedCost, 'id'>
-  transactions: EntityTable<Transaction, 'id'>
-  settings: EntityTable<Settings, 'id'>
+/** 同期のためにすべてのレコードが持つ項目 */
+export interface SyncMeta {
+  /** 未送信の変更がある */
+  _dirty?: 0 | 1
+  /** この端末で最後に変更した時刻（競合時は新しい方を採用） */
+  _modifiedAt?: number
+  /** 削除済み（削除も同期するため、レコードは印を付けて残す） */
+  deleted?: 0 | 1
+  /** サーバーに保存された時刻 */
+  updatedAt?: number
 }
+
+type Stored<T> = T & SyncMeta & { id: string }
+
+export const TABLES = ['members', 'incomes', 'methods', 'fixedCosts', 'transactions', 'settings'] as const
+export type TableName = (typeof TABLES)[number]
+
+export interface Records {
+  members: Member
+  incomes: Income
+  methods: PaymentMethod
+  fixedCosts: FixedCost
+  transactions: Transaction
+  settings: Settings
+}
+
+export type AppDB = Dexie & { [K in TableName]: Table<Stored<Records[K]>, string> } & {
+  meta: Table<{ key: string; value: unknown }, string>
+}
+
+/*
+ * v3 から ID を文字列にした（端末間で ID が衝突しないように）。
+ * 主キーの型は変更できないので、別名のデータベースを作り、旧データベースから移行する。
+ */
+export const db = new Dexie('money-management-v3') as AppDB
+
+/** テーブル名で汎用的に読み書きするとき用（型はレコード共通の形に揃える） */
+export type AnyRecord = { id: string } & SyncMeta & Record<string, unknown>
+export const tableOf = (name: TableName) => db.table<AnyRecord, string>(name)
+/** アプリの型（Transaction など）を汎用レコードとして扱う */
+export const asRecords = (rows: readonly unknown[]) => rows as AnyRecord[]
 
 db.version(1).stores({
-  members: '++id',
-  methods: '++id, order',
-  fixedCosts: '++id',
-  transactions: '++id, date, methodId, fixedCostId',
-  settings: 'id',
+  members: 'id, _dirty',
+  incomes: 'id, _dirty, memberId',
+  methods: 'id, _dirty',
+  fixedCosts: 'id, _dirty',
+  transactions: 'id, _dirty, date, fixedCostId',
+  settings: 'id, _dirty',
+  meta: 'key',
 })
 
-// v2: 収入の見込み/実額対応（時給計算の項目を追加し、サイクルごとの実額を保持）
-db.version(2)
-  .stores({ incomes: '++id, memberId, cycleStart' })
-  .upgrade((tx) =>
-    tx
-      .table('members')
-      .toCollection()
-      .modify((m: Member) => {
-        m.payType ??= 'monthly'
-        m.hourlyWage ??= 0
-        m.hoursPerDay ??= 0
-        m.daysPerMonth ??= 0
-        m.deductionRate ??= 0
-      }),
-  )
+/** 初期データは未送信扱いにせず、変更時刻も最古にする（クラウドのデータがあればそちらを優先） */
+const seedMeta = { _dirty: 0, _modifiedAt: 0 } as const
 
-export const newMember = (name: string, payType: Member['payType'] = 'monthly'): Member => ({
-  name,
-  payday: 25,
-  payType,
-  takeHome: 0,
-  hourlyWage: 0,
-  hoursPerDay: 0,
-  daysPerMonth: 0,
-  deductionRate: 0,
-})
-
-const credit = (name: string, closingDay: number, paymentDay: number, order: number): PaymentMethod => ({
-  name,
-  kind: 'credit',
-  closingDay,
-  paymentDay,
-  monthOffset: 1,
-  order,
-})
-
-/** 初回起動時の初期データ（締め日 31 = 月末） */
 db.on('populate', (tx) => {
-  tx.table('settings').add({ id: 'main', cycleStartDay: 25, savings: 0 } satisfies Settings)
-  tx.table('members').bulkAdd([newMember('自分'), newMember('妻', 'hourly')])
-  tx.table('methods').bulkAdd([
-    credit('Olive', 31, 26, 1),
-    credit('PayPayカード', 31, 27, 2),
-    credit('セゾン', 10, 4, 3),
-    credit('JAL', 15, 10, 4),
-    credit('JCB W', 15, 10, 5),
-    credit('エポス', 4, 4, 6),
-    credit('ルミネ', 5, 4, 7),
-    credit('イオン', 10, 2, 8),
-    { name: '現金', kind: 'cash', closingDay: 31, paymentDay: 31, monthOffset: 0, order: 9 },
-  ] satisfies PaymentMethod[])
+  tx.table('settings').add({ ...SEED_SETTINGS, ...seedMeta })
+  tx.table('members').bulkAdd(SEED_MEMBERS.map((m) => ({ ...m, ...seedMeta })))
+  tx.table('methods').bulkAdd(SEED_METHODS.map((m) => ({ ...m, ...seedMeta })))
 })
 
-export interface Backup {
-  version: 1
-  exportedAt: string
-  members: Member[]
-  /** v2 以降のバックアップにのみ含まれる */
-  incomes?: Income[]
-  methods: PaymentMethod[]
-  fixedCosts: FixedCost[]
-  transactions: Transaction[]
-  settings: Settings[]
+const LEGACY_DB = 'money-management'
+
+/**
+ * 旧データベース（連番 ID）があれば一度だけ移行する。旧データベースは念のため残す。
+ * 移行したデータは送信対象にするが、変更時刻は最古にして、クラウドにある新しいデータを上書きしないようにする。
+ */
+export async function migrateLegacy() {
+  if (await db.meta.get('legacyMigrated')) return
+  if (!(await Dexie.exists(LEGACY_DB))) {
+    await db.meta.put({ key: 'legacyMigrated', value: 'none' })
+    return
+  }
+  const old = new Dexie(LEGACY_DB)
+  await old.open()
+  const read = async (name: string) =>
+    old.tables.some((t) => t.name === name) ? await old.table(name).toArray() : []
+  const legacy: LegacyData = {
+    members: await read('members'),
+    incomes: await read('incomes'),
+    methods: await read('methods'),
+    fixedCosts: await read('fixedCosts'),
+    transactions: await read('transactions'),
+    settings: await read('settings'),
+  }
+  old.close()
+
+  const { data, deletedSeedIds } = convertLegacy(legacy)
+  const meta = { _dirty: 1, _modifiedAt: 1 } as const
+  await db.transaction('rw', [...TABLES.map((t) => db[t]), db.meta], async () => {
+    for (const t of TABLES) {
+      await tableOf(t).clear()
+      await tableOf(t).bulkPut(asRecords(data[t]).map((r) => ({ ...r, ...meta })))
+    }
+    await db.members.bulkPut(deletedSeedIds.members.map((id) => ({ id, deleted: 1, ...meta }) as never))
+    await db.methods.bulkPut(deletedSeedIds.methods.map((id) => ({ id, deleted: 1, ...meta }) as never))
+    await db.meta.put({ key: 'legacyMigrated', value: new Date().toISOString() })
+  })
 }
+
+export interface Backup extends DataSet {
+  version: 2
+  exportedAt: string
+}
+
+const strip = <T extends SyncMeta>(rows: T[]) =>
+  rows
+    .filter((r) => !r.deleted)
+    .map(({ _dirty: _d, _modifiedAt: _m, deleted: _x, updatedAt: _u, ...rest }) => rest)
 
 export async function exportBackup(): Promise<Backup> {
   return {
-    version: 1,
+    version: 2,
     exportedAt: new Date().toISOString(),
-    members: await db.members.toArray(),
-    incomes: await db.incomes.toArray(),
-    methods: await db.methods.toArray(),
-    fixedCosts: await db.fixedCosts.toArray(),
-    transactions: await db.transactions.toArray(),
-    settings: await db.settings.toArray(),
+    members: strip(await db.members.toArray()),
+    incomes: strip(await db.incomes.toArray()),
+    methods: strip(await db.methods.toArray()),
+    fixedCosts: strip(await db.fixedCosts.toArray()),
+    transactions: strip(await db.transactions.toArray()),
+    settings: strip(await db.settings.toArray()),
   }
 }
 
-export async function importBackup(data: Backup) {
-  if (data.version !== 1) throw new Error('対応していないバックアップ形式です')
-  const tables = [db.members, db.incomes, db.methods, db.fixedCosts, db.transactions, db.settings]
-  await db.transaction('rw', tables, async () => {
-    await Promise.all(tables.map((t) => t.clear()))
-    await db.members.bulkAdd(data.members.map((m) => ({ ...newMember(m.name), ...m })))
-    await db.incomes.bulkAdd(data.incomes ?? [])
-    await db.methods.bulkAdd(data.methods)
-    await db.fixedCosts.bulkAdd(data.fixedCosts)
-    await db.transactions.bulkAdd(data.transactions)
-    await db.settings.bulkAdd(data.settings)
-  })
+/** バックアップの内容に置き換える（旧形式のバックアップも読める） */
+export function backupToDataSet(raw: unknown): DataSet {
+  const data = raw as { version?: number }
+  if (data?.version === 2) return data as Backup
+  if (data?.version === 1) return convertLegacy(raw as LegacyData).data
+  throw new Error('対応していないバックアップ形式です')
 }

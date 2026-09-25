@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { db } from '../db'
+import { repo } from '../repo'
 import { billingOf } from '../lib/billing'
 import { formatMD, todayYMD } from '../lib/dates'
 import { CATEGORIES, FIXED_CATEGORY, type Transaction } from '../lib/types'
@@ -7,10 +7,10 @@ import type { AppData } from '../useData'
 
 const LAST_METHOD_KEY = 'lastMethodId'
 
-function loadLastMethod(): number | undefined {
+function loadLastMethod(): string | undefined {
   try {
     const v = localStorage.getItem(LAST_METHOD_KEY)
-    return v ? Number(v) : undefined
+    return v ?? undefined
   } catch {
     return undefined
   }
@@ -31,10 +31,10 @@ export function EntryForm({ data, initial, onClose }: Props) {
   const [amount, setAmount] = useState(initial?.amount ? String(Math.abs(initial.amount)) : '')
   const [refund, setRefund] = useState((initial?.amount ?? 0) < 0)
   const [date, setDate] = useState(initial?.date ?? todayYMD())
-  const [methodId, setMethodId] = useState<number | undefined>(defaultMethod)
+  const [methodId, setMethodId] = useState<string | undefined>(defaultMethod)
   const [category, setCategory] = useState(initial?.category ?? CATEGORIES[0])
   const [memo, setMemo] = useState(initial?.memo ?? '')
-  const [fixedCostId, setFixedCostId] = useState<number | undefined>(initial?.fixedCostId)
+  const [fixedCostId, setFixedCostId] = useState<string | undefined>(initial?.fixedCostId)
 
   const method = data.methods.find((m) => m.id === methodId)
   // 取り込み時の引落月指定は、利用日とカードが変わっていない間だけ有効
@@ -46,7 +46,7 @@ export function EntryForm({ data, initial, onClose }: Props) {
   const categoryChoices: string[] = [...CATEGORIES, FIXED_CATEGORY]
   if (!categoryChoices.includes(category)) categoryChoices.push(category)
 
-  const chooseFixed = (id: number | undefined) => {
+  const chooseFixed = (id: string | undefined) => {
     setFixedCostId(id)
     const fc = data.fixedCosts.find((f) => f.id === id)
     if (fc) {
@@ -70,10 +70,10 @@ export function EntryForm({ data, initial, onClose }: Props) {
       paymentMonth,
       importKey: initial?.importKey,
     }
-    if (editing) await db.transactions.put({ ...tx, id: initial.id })
-    else await db.transactions.add(tx)
+    if (editing) await repo.put('transactions', { ...tx, id: initial.id! })
+    else await repo.add('transactions', tx)
     try {
-      localStorage.setItem(LAST_METHOD_KEY, String(method.id))
+      localStorage.setItem(LAST_METHOD_KEY, method.id!)
     } catch {
       // 保存できなくても入力自体は成功している
     }
@@ -82,7 +82,7 @@ export function EntryForm({ data, initial, onClose }: Props) {
 
   const remove = async () => {
     if (!editing || !confirm('この支出を削除しますか？')) return
-    await db.transactions.delete(initial.id!)
+    await repo.remove('transactions', initial.id!)
     onClose()
   }
 
@@ -138,7 +138,7 @@ export function EntryForm({ data, initial, onClose }: Props) {
             <span className="field-label">固定費の実額として記録</span>
             <select
               value={fixedCostId ?? ''}
-              onChange={(e) => chooseFixed(e.target.value ? Number(e.target.value) : undefined)}
+              onChange={(e) => chooseFixed(e.target.value || undefined)}
             >
               <option value="">記録しない（普段の支出）</option>
               {data.fixedCosts.map((f) => (

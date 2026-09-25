@@ -117,7 +117,7 @@ export function outflows(
   const byId = new Map(methods.map((m) => [m.id!, m]))
   const groups = new Map<string, Outflow>()
 
-  const add = (date: YMD, amount: number, methodId: number, estimate: boolean, paymentMonth?: string) => {
+  const add = (date: YMD, amount: number, methodId: string, estimate: boolean, paymentMonth?: string) => {
     const method = byId.get(methodId)
     if (!method) return
     const { closingDate, paymentDate } = billingOf(date, method, paymentMonth)
@@ -165,6 +165,8 @@ export interface CycleCashflow {
   cycle: Cycle
   incomes: IncomeStatus[]
   income: number
+  /** 期間中に出ていくお金すべて（出金日順） */
+  items: Outflow[]
   /** 期間中に引き落とされるクレジットカードの請求 */
   cards: Outflow[]
   /** 期間中に使った現金・QR・デビットなど（支払い方法ごとの合計） */
@@ -188,7 +190,7 @@ export function cashflowFor(
   const inRange = flows.filter((o) => inCycle(o.paymentDate, cycle))
   const cards = inRange.filter((o) => o.method.kind === 'credit')
 
-  const directMap = new Map<number, CycleCashflow['direct'][number]>()
+  const directMap = new Map<string, CycleCashflow['direct'][number]>()
   for (const o of inRange) {
     if (o.method.kind === 'credit') continue
     const d = directMap.get(o.method.id!) ?? { method: o.method, amount: 0, includesEstimate: false }
@@ -203,6 +205,7 @@ export function cashflowFor(
     cycle,
     incomes,
     income,
+    items: inRange,
     cards,
     direct,
     outTotal,
@@ -210,4 +213,39 @@ export function cashflowFor(
     remaining: income - outTotal - settings.savings,
     open: cards.some((c) => !c.confirmed),
   }
+}
+
+/** 口座残高を起点にした繰越 */
+export interface Carry {
+  balanceDate: YMD
+  /** 残高入力日がこのサイクル内にある（開始残高 = 入力した残高） */
+  fromInput: boolean
+  /** 開始時点の残高（前回からの繰越、または入力した残高） */
+  opening: number
+  /** 次の給料日前日の残高予測 */
+  closing: number
+}
+
+/** 入出金のうち、残高入力日より後のもの（まだ残高に反映されていないもの）か */
+export const isPending = (date: YMD, balanceDate: YMD) => date > balanceDate
+
+export const incomeDate = (cycle: Cycle, member: Member) => dayWithinCycle(cycle, member.payday)
+
+/**
+ * 連続したサイクルの収支に、口座残高からの繰越を付ける。
+ * cashflows は残高入力日を含むサイクルから始まっている必要がある。
+ */
+export function applyCarry(cashflows: CycleCashflow[], balance: number, balanceDate: YMD): Carry[] {
+  let running = balance
+  return cashflows.map((cf) => {
+    const events = [
+      ...cf.incomes.map((i) => ({ date: incomeDate(cf.cycle, i.member), amount: i.amount })),
+      ...cf.items.map((o) => ({ date: o.paymentDate, amount: -o.amount })),
+      { date: cf.cycle.start, amount: -cf.savings },
+    ]
+    const opening = running
+    const closing = opening + events.filter((e) => isPending(e.date, balanceDate)).reduce((s, e) => s + e.amount, 0)
+    running = closing
+    return { balanceDate, fromInput: inCycle(balanceDate, cf.cycle), opening, closing }
+  })
 }

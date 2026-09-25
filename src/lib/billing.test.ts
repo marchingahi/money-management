@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import { billingOf } from './billing'
-import { cashflowFor, expectedTakeHome, outflows, summarize, upcomingBillings } from './budget'
+import { applyCarry, cashflowFor, expectedTakeHome, outflows, summarize, upcomingBillings } from './budget'
 import { cycleOf, dayWithinCycle, shiftCycle } from './dates'
 import type { Member, PaymentMethod } from './types'
 
 const card = (id: number, name: string, closingDay: number, paymentDay: number): PaymentMethod => ({
-  id,
+  id: String(id),
   name,
   kind: 'credit',
   closingDay,
@@ -81,18 +81,18 @@ describe('cycle', () => {
 describe('summarize', () => {
   const cycle = cycleOf('2026-09-25', 25)
   const base = { payday: 25, takeHome: 0, hourlyWage: 0, hoursPerDay: 0, daysPerMonth: 0, deductionRate: 0 }
-  const husband: Member = { ...base, id: 1, name: '夫', payType: 'monthly', takeHome: 250000 }
+  const husband: Member = { ...base, id: '1', name: '夫', payType: 'monthly', takeHome: 250000 }
   // 1,200円 × 6時間 × 16日 × (1 − 10%) = 103,680
-  const wife: Member = { ...base, id: 2, name: '妻', payType: 'hourly', hourlyWage: 1200, hoursPerDay: 6, daysPerMonth: 16, deductionRate: 10 }
+  const wife: Member = { ...base, id: '2', name: '妻', payType: 'hourly', hourlyWage: 1200, hoursPerDay: 6, daysPerMonth: 16, deductionRate: 10 }
   const members = [husband, wife]
   const fixedCosts = [
-    { id: 1, name: '電気', amount: 10000, day: 5, methodId: 1 },
-    { id: 2, name: '家賃', amount: 90000, day: 27, methodId: 99 },
+    { id: '1', name: '電気', amount: 10000, day: 5, methodId: '1' },
+    { id: '2', name: '家賃', amount: 90000, day: 27, methodId: '99' },
   ]
   const txs = [
-    { id: 1, date: '2026-09-26', amount: 5000, category: '食費', methodId: 1, memo: '' },
-    { id: 2, date: '2026-10-05', amount: 12000, category: '固定費', methodId: 1, memo: '', fixedCostId: 1 },
-    { id: 3, date: '2026-09-20', amount: 8000, category: '食費', methodId: 1, memo: '' }, // 前サイクル
+    { id: '1', date: '2026-09-26', amount: 5000, category: '食費', methodId: '1', memo: '' },
+    { id: '2', date: '2026-10-05', amount: 12000, category: '固定費', methodId: '1', memo: '', fixedCostId: '1' },
+    { id: '3', date: '2026-09-20', amount: 8000, category: '食費', methodId: '1', memo: '' }, // 前サイクル
   ]
   const settings = { id: 'main' as const, cycleStartDay: 25, savings: 50000 }
 
@@ -103,8 +103,8 @@ describe('summarize', () => {
 
   it('世帯収入（実額優先）から固定費（実額優先）と貯金を引いて残額を出す', () => {
     const incomes = [
-      { memberId: 1, cycleStart: '2026-09-25', amount: 262000 }, // 今サイクルの実額
-      { memberId: 2, cycleStart: '2026-08-25', amount: 90000 }, // 前サイクル（無関係）
+      { memberId: '1', cycleStart: '2026-09-25', amount: 262000 }, // 今サイクルの実額
+      { memberId: '2', cycleStart: '2026-08-25', amount: 90000 }, // 前サイクル（無関係）
     ]
     const s = summarize(cycle, '2026-10-15', members, incomes, fixedCosts, txs, settings)
     expect(s.incomes.map((i) => [i.amount, i.actual])).toEqual([
@@ -121,14 +121,14 @@ describe('summarize', () => {
   })
 
   it('cashflowFor: 給料からそのサイクル中の引落・現金支出・貯金を引く', () => {
-    const cash: PaymentMethod = { id: 9, name: '現金', kind: 'cash', closingDay: 31, paymentDay: 31, monthOffset: 0, order: 9 }
+    const cash: PaymentMethod = { id: '9', name: '現金', kind: 'cash', closingDay: 31, paymentDay: 31, monthOffset: 0, order: 9 }
     const methods = [olive, saison, cash]
     const txs = [
-      { id: 1, date: '2026-08-20', amount: 30000, category: '食費', methodId: 1, memo: '' }, // 8/31締め 9/28 引落 → 9/25 サイクル（今日の給料から払う）
-      { id: 2, date: '2026-09-26', amount: 5000, category: '食費', methodId: 1, memo: '' }, // 10/26 引落 → 10/25 サイクル
-      { id: 3, date: '2026-09-05', amount: 7000, category: '食費', methodId: 3, memo: '' }, // 9/10締め 10/5 引落 → 9/25 サイクル
-      { id: 4, date: '2026-09-30', amount: 2000, category: '食費', methodId: 9, memo: '' }, // 現金 → 9/25 サイクル
-      { id: 5, date: '2026-10-01', amount: 4000, category: '固定費', methodId: 1, memo: '', paymentMonth: '2026-12' },
+      { id: '1', date: '2026-08-20', amount: 30000, category: '食費', methodId: '1', memo: '' }, // 8/31締め 9/28 引落 → 9/25 サイクル（今日の給料から払う）
+      { id: '2', date: '2026-09-26', amount: 5000, category: '食費', methodId: '1', memo: '' }, // 10/26 引落 → 10/25 サイクル
+      { id: '3', date: '2026-09-05', amount: 7000, category: '食費', methodId: '3', memo: '' }, // 9/10締め 10/5 引落 → 9/25 サイクル
+      { id: '4', date: '2026-09-30', amount: 2000, category: '食費', methodId: '9', memo: '' }, // 現金 → 9/25 サイクル
+      { id: '5', date: '2026-10-01', amount: 4000, category: '固定費', methodId: '1', memo: '', paymentMonth: '2026-12' },
     ]
     const flows = outflows('2026-09-25', methods, txs, [], [])
     const cur = cashflowFor(cycle, members, [], flows, settings)
@@ -148,6 +148,24 @@ describe('summarize', () => {
     // 引落月指定（Excel の支払月）12 月 → 12/28 引落 → 12/25 サイクル
     const after = cashflowFor(shiftCycle(cycle, 3, 25), members, [], flows, settings)
     expect(after.cards.map((c) => [c.paymentDate, c.amount])).toEqual([['2026-12-28', 4000]])
+  })
+
+  it('applyCarry: 口座残高（入力日までの入出金は反映済み）から繰越を計算', () => {
+    const cash: PaymentMethod = { id: '9', name: '現金', kind: 'cash', closingDay: 31, paymentDay: 31, monthOffset: 0, order: 9 }
+    const methods = [olive, saison, cash]
+    const txs = [
+      { id: '1', date: '2026-08-20', amount: 30000, category: '食費', methodId: '1', memo: '' }, // 9/28 引落
+      { id: '2', date: '2026-09-26', amount: 5000, category: '食費', methodId: '1', memo: '' }, // 10/26 引落
+      { id: '3', date: '2026-09-05', amount: 7000, category: '食費', methodId: '3', memo: '' }, // 10/5 引落
+      { id: '4', date: '2026-09-25', amount: 1000, category: '食費', methodId: '9', memo: '' }, // 入力日当日 → 反映済み
+    ]
+    const flows = outflows('2026-09-25', methods, txs, [], [])
+    const cfs = [0, 1].map((n) => cashflowFor(shiftCycle(cycle, n, 25), members, [], flows, settings))
+    const [cur, next] = applyCarry(cfs, 50000, '2026-09-25')
+    // 今日の給料・貯金・現金は反映済み。9/28 と 10/5 の引落だけが残高から出ていく
+    expect(cur).toEqual({ balanceDate: '2026-09-25', fromInput: true, opening: 50000, closing: 50000 - 37000 })
+    // 次の給料 353,680 − 貯金 50,000 − 10/26 引落 5,000
+    expect(next).toEqual({ balanceDate: '2026-09-25', fromInput: false, opening: 13000, closing: 13000 + 353680 - 55000 })
   })
 
   it('upcomingBillings はカード×引落日で合算し、未入力の固定費を見込みで含める', () => {

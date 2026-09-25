@@ -20,9 +20,12 @@ export function Home({ data, onEntry }: Props) {
   const cycles = [0, 1, 2].map((n) => shiftCycle(cycle, n, settings.cycleStartDay))
   const flows = outflows(today, methods, transactions, fixedCosts, cycles)
   // 口座残高の入力日が今のサイクルより前なら、そこから今のサイクルの手前まで（最大6回分）も繰越の計算に使う
+  const oldestBalance = data.accounts
+    .flatMap((a) => (a.balance != null && a.balanceDate ? [a.balanceDate] : []))
+    .sort()[0]
   const leadCycles: typeof cycles = []
-  if (settings.balanceDate && settings.balanceDate < cycle.start) {
-    for (let n = -1; n >= -6 && shiftCycle(cycle, n + 1, settings.cycleStartDay).start > settings.balanceDate; n--) {
+  if (oldestBalance && oldestBalance < cycle.start) {
+    for (let n = -1; n >= -6 && shiftCycle(cycle, n + 1, settings.cycleStartDay).start > oldestBalance; n--) {
       leadCycles.unshift(shiftCycle(cycle, n, settings.cycleStartDay))
     }
   }

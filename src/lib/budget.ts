@@ -1,6 +1,6 @@
 import { billingOf } from './billing'
 import { daysBetween, dayWithinCycle, type Cycle } from './dates'
-import { FIXED_CATEGORY, type FixedCost, type Income, type Member, type PaymentMethod, type Settings, type Transaction, type YMD } from './types'
+import { FIXED_CATEGORY, type Account, type FixedCost, type Income, type Member, type PaymentMethod, type Settings, type Transaction, type YMD } from './types'
 
 export interface FixedStatus {
   cost: FixedCost
@@ -215,37 +215,117 @@ export function cashflowFor(
   }
 }
 
-/** 口座残高を起点にした繰越 */
-export interface Carry {
-  balanceDate: YMD
+export const incomeDate = (cycle: Cycle, member: Member) => dayWithinCycle(cycle, member.payday)
+
+/** 口座のお金が動く予定 1 件 */
+export interface AccountEvent {
+  /** 残高入力日当日の予定を「未反映」として指定するためのキー */
+  key: string
+  date: YMD
+  /** 入金はプラス、出金はマイナス */
+  amount: number
+  accountId: string
+  label: string
+}
+
+/** 口座を使わない支払い方法（財布の現金など）に指定する値 */
+export const NO_ACCOUNT = 'none'
+
+/** 口座の指定がなければ最初の口座を使う */
+export function accountResolver(accounts: Account[]) {
+  const ids = new Set(accounts.map((a) => a.id))
+  return (explicit?: string) => {
+    if (explicit === NO_ACCOUNT) return undefined
+    return explicit && ids.has(explicit) ? explicit : accounts[0]?.id
+  }
+}
+
+/** あるサイクルの収支を、口座ごとの入出金の予定に分解する */
+export function cycleEvents(cf: CycleCashflow, accounts: Account[], settings: Settings): AccountEvent[] {
+  const resolve = accountResolver(accounts)
+  const events: AccountEvent[] = []
+  const push = (e: Omit<AccountEvent, 'accountId'>, explicit?: string) => {
+    const accountId = resolve(explicit)
+    if (accountId && e.amount !== 0) events.push({ ...e, accountId })
+  }
+  for (const i of cf.incomes) {
+    push(
+      { key: `income:${i.member.id}@${cf.cycle.start}`, date: incomeDate(cf.cycle, i.member), amount: i.amount, label: `${i.member.name}の手取り` },
+      i.member.accountId,
+    )
+  }
+  for (const o of cf.items) {
+    push(
+      {
+        key: `out:${o.method.id}@${o.paymentDate}`,
+        date: o.paymentDate,
+        amount: -o.amount,
+        label: o.method.kind === 'credit' ? `${o.method.name} 引落` : `${o.method.name}での支払い`,
+      },
+      o.method.accountId,
+    )
+  }
+  push(
+    { key: `savings@${cf.cycle.start}`, date: cf.cycle.start, amount: -cf.savings, label: '先取り貯金' },
+    settings.savingsAccountId,
+  )
+  return events.sort((a, b) => a.date.localeCompare(b.date))
+}
+
+/** 予定が口座残高にすでに反映されているか（残高入力日より前、または当日で未反映に指定されていない） */
+export function isSettled(e: AccountEvent, account: Account): boolean {
+  if (!account.balanceDate) return false
+  if (e.date < account.balanceDate) return true
+  return e.date === account.balanceDate && !(account.unsettled ?? []).includes(e.key)
+}
+
+export interface AccountCarry {
+  account: Account
   /** 残高入力日がこのサイクル内にある（開始残高 = 入力した残高） */
   fromInput: boolean
-  /** 開始時点の残高（前回からの繰越、または入力した残高） */
   opening: number
-  /** 次の給料日前日の残高予測 */
+  closing: number
+  /** 期間中に残高がマイナスになる最初の予定 */
+  shortage: { date: YMD; balance: number; label: string } | null
+}
+
+export interface CycleCarry {
+  accounts: AccountCarry[]
+  opening: number
   closing: number
 }
 
-/** 入出金のうち、残高入力日より後のもの（まだ残高に反映されていないもの）か */
-export const isPending = (date: YMD, balanceDate: YMD) => date > balanceDate
-
-export const incomeDate = (cycle: Cycle, member: Member) => dayWithinCycle(cycle, member.payday)
-
 /**
- * 連続したサイクルの収支に、口座残高からの繰越を付ける。
- * cashflows は残高入力日を含むサイクルから始まっている必要がある。
+ * 残高を入れた口座ごとに、連続したサイクルの繰越を計算する。
+ * cashflows は、最も古い残高入力日を含むサイクルから始まっている必要がある。
  */
-export function applyCarry(cashflows: CycleCashflow[], balance: number, balanceDate: YMD): Carry[] {
-  let running = balance
+export function projectAccounts(
+  cashflows: CycleCashflow[],
+  accounts: Account[],
+  settings: Settings,
+): CycleCarry[] | null {
+  const tracked = accounts.filter((a) => a.balance != null && a.balanceDate)
+  if (!tracked.length) return null
+  const running = new Map(tracked.map((a) => [a.id!, a.balance!]))
+
   return cashflows.map((cf) => {
-    const events = [
-      ...cf.incomes.map((i) => ({ date: incomeDate(cf.cycle, i.member), amount: i.amount })),
-      ...cf.items.map((o) => ({ date: o.paymentDate, amount: -o.amount })),
-      { date: cf.cycle.start, amount: -cf.savings },
-    ]
-    const opening = running
-    const closing = opening + events.filter((e) => isPending(e.date, balanceDate)).reduce((s, e) => s + e.amount, 0)
-    running = closing
-    return { balanceDate, fromInput: inCycle(balanceDate, cf.cycle), opening, closing }
+    const events = cycleEvents(cf, accounts, settings)
+    const carries = tracked.map((account) => {
+      const opening = running.get(account.id!)!
+      let balance = opening
+      let shortage: AccountCarry['shortage'] = null
+      for (const e of events) {
+        if (e.accountId !== account.id || isSettled(e, account)) continue
+        balance += e.amount
+        if (balance < 0 && !shortage) shortage = { date: e.date, balance, label: e.label }
+      }
+      running.set(account.id!, balance)
+      return { account, fromInput: inCycle(account.balanceDate!, cf.cycle), opening, closing: balance, shortage }
+    })
+    return {
+      accounts: carries,
+      opening: carries.reduce((s, c) => s + c.opening, 0),
+      closing: carries.reduce((s, c) => s + c.closing, 0),
+    }
   })
 }

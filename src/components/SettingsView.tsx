@@ -2,9 +2,9 @@ import { useState, type ChangeEvent } from 'react'
 import { backupToDataSet, exportBackup } from '../db'
 import { newMember } from '../lib/seed'
 import { repo } from '../repo'
-import { expectedTakeHome } from '../lib/budget'
-import { todayYMD } from '../lib/dates'
-import { KIND_LABEL, type MethodKind, type PayType } from '../lib/types'
+import { expectedTakeHome, NO_ACCOUNT } from '../lib/budget'
+import { formatMD, todayYMD } from '../lib/dates'
+import { KIND_LABEL, type Account, type MethodKind, type PayType } from '../lib/types'
 import { dayLabel, yen, type AppData } from '../useData'
 import { ImportSheet } from './ImportSheet'
 import { SyncSection } from './SyncSection'
@@ -67,8 +67,33 @@ function DaySelect({ value, onChange }: { value: number; onChange: (v: number) =
   )
 }
 
+/** 口座の選択。未指定は「最初の口座」として扱う */
+function AccountSelect({
+  accounts,
+  value,
+  onChange,
+  allowNone = false,
+}: {
+  accounts: Account[]
+  value?: string
+  onChange: (v: string | undefined) => void
+  allowNone?: boolean
+}) {
+  return (
+    <select value={value ?? ''} onChange={(e) => onChange(e.target.value || undefined)}>
+      <option value="">{accounts[0] ? `未指定（${accounts[0].name}）` : '未指定'}</option>
+      {accounts.map((a) => (
+        <option key={a.id} value={a.id}>
+          {a.name}
+        </option>
+      ))}
+      {allowNone && <option value={NO_ACCOUNT}>口座を使わない（財布の現金など）</option>}
+    </select>
+  )
+}
+
 export function SettingsView({ data }: { data: AppData }) {
-  const { settings, members, methods, fixedCosts, transactions } = data
+  const { settings, members, accounts, methods, fixedCosts, transactions } = data
   const [message, setMessage] = useState('')
   const [importing, setImporting] = useState(false)
 
@@ -130,7 +155,67 @@ export function SettingsView({ data }: { data: AppData }) {
             先取り貯金（月額）
             <NumInput value={settings.savings} onCommit={(v) => repo.update('settings', 'main', { savings: v })} />
           </label>
+          {accounts.length > 1 && (
+            <label>
+              先取り貯金を出す口座
+              <AccountSelect
+                accounts={accounts}
+                value={settings.savingsAccountId}
+                onChange={(v) => repo.update('settings', 'main', { savingsAccountId: v })}
+              />
+            </label>
+          )}
         </div>
+      </section>
+
+      <section className="card">
+        <h2>口座</h2>
+        <p className="muted small">
+          給料が入る口座、カードが引き落とされる口座を登録します。残高はホーム画面の「給料ごとの残り」から入力します。給料や支払い方法ごとの口座は、それぞれの欄で選んでください（未指定なら一番上の口座）。
+        </p>
+        {accounts.map((a) => (
+          <div key={a.id} className="item">
+            <div className="form-grid">
+              <label>
+                名前
+                <TextInput value={a.name} onCommit={(v) => repo.update('accounts', a.id, { name: v })} />
+              </label>
+              <label>
+                名義
+                <select
+                  value={a.ownerId ?? ''}
+                  onChange={(e) => repo.update('accounts', a.id, { ownerId: e.target.value || undefined })}
+                >
+                  <option value="">共通</option>
+                  {members.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+            <p className="muted small account-balance">
+              {a.balance != null && a.balanceDate
+                ? `残高 ${yen(a.balance)}（${formatMD(a.balanceDate)}時点）`
+                : '残高未入力'}
+            </p>
+            <button
+              className="link-btn danger"
+              onClick={() => confirm(`${a.name}を削除しますか？`) && repo.remove('accounts', a.id)}
+            >
+              削除
+            </button>
+          </div>
+        ))}
+        <button
+          className="btn"
+          onClick={() =>
+            repo.add('accounts', { name: '新しい口座', order: Math.max(0, ...accounts.map((a) => a.order)) + 1 })
+          }
+        >
+          ＋ 口座を追加
+        </button>
       </section>
 
       <section className="card">
@@ -149,6 +234,16 @@ export function SettingsView({ data }: { data: AppData }) {
                 給料日
                 <DaySelect value={m.payday} onChange={(v) => repo.update('members', m.id, { payday: v })} />
               </label>
+              {accounts.length > 1 && (
+                <label>
+                  振込口座
+                  <AccountSelect
+                    accounts={accounts}
+                    value={m.accountId}
+                    onChange={(v) => repo.update('members', m.id, { accountId: v })}
+                  />
+                </label>
+              )}
               <label>
                 給与形態
                 <select
@@ -256,6 +351,17 @@ export function SettingsView({ data }: { data: AppData }) {
                   ))}
                 </select>
               </label>
+              {accounts.length > 0 && (
+                <label>
+                  {m.kind === 'credit' ? '引落口座' : '支払う口座'}
+                  <AccountSelect
+                    accounts={accounts}
+                    value={m.accountId}
+                    allowNone={m.kind !== 'credit'}
+                    onChange={(v) => repo.update('methods', m.id, { accountId: v })}
+                  />
+                </label>
+              )}
               {m.kind === 'credit' && (
                 <>
                   <label>

@@ -1,7 +1,7 @@
 import Dexie, { type Table } from 'dexie'
 import { convertLegacy, type DataSet, type LegacyData } from './lib/legacy'
 import { SEED_MEMBERS, SEED_METHODS, SEED_SETTINGS } from './lib/seed'
-import type { FixedCost, Income, Member, PaymentMethod, Settings, Transaction } from './lib/types'
+import type { Account, FixedCost, Income, Member, PaymentMethod, Settings, Transaction } from './lib/types'
 
 /** 同期のためにすべてのレコードが持つ項目 */
 export interface SyncMeta {
@@ -17,12 +17,13 @@ export interface SyncMeta {
 
 type Stored<T> = T & SyncMeta & { id: string }
 
-export const TABLES = ['members', 'incomes', 'methods', 'fixedCosts', 'transactions', 'settings'] as const
+export const TABLES = ['members', 'incomes', 'accounts', 'methods', 'fixedCosts', 'transactions', 'settings'] as const
 export type TableName = (typeof TABLES)[number]
 
 export interface Records {
   members: Member
   incomes: Income
+  accounts: Account
   methods: PaymentMethod
   fixedCosts: FixedCost
   transactions: Transaction
@@ -54,6 +55,26 @@ db.version(1).stores({
   settings: 'id, _dirty',
   meta: 'key',
 })
+
+/** 口座が 1 つだった頃に入れた残高を、最初の口座として移す（どの端末でも同じ ID になるようにする） */
+export const LEGACY_ACCOUNT_ID = 'a-1'
+
+// v2: 複数口座に対応
+db.version(2)
+  .stores({ accounts: 'id, _dirty' })
+  .upgrade(async (tx) => {
+    const settings = (await tx.table('settings').get('main')) as Settings | undefined
+    if (settings?.balance == null || !settings.balanceDate) return
+    await tx.table('accounts').put({
+      id: LEGACY_ACCOUNT_ID,
+      name: '口座',
+      order: 1,
+      balance: settings.balance,
+      balanceDate: settings.balanceDate,
+      _dirty: 1,
+      _modifiedAt: 1,
+    })
+  })
 
 /** 初期データは未送信扱いにせず、変更時刻も最古にする（クラウドのデータがあればそちらを優先） */
 const seedMeta = { _dirty: 0, _modifiedAt: 0 } as const
@@ -119,6 +140,7 @@ export async function exportBackup(): Promise<Backup> {
     exportedAt: new Date().toISOString(),
     members: strip(await db.members.toArray()),
     incomes: strip(await db.incomes.toArray()),
+    accounts: strip(await db.accounts.toArray()),
     methods: strip(await db.methods.toArray()),
     fixedCosts: strip(await db.fixedCosts.toArray()),
     transactions: strip(await db.transactions.toArray()),
@@ -129,7 +151,8 @@ export async function exportBackup(): Promise<Backup> {
 /** バックアップの内容に置き換える（旧形式のバックアップも読める） */
 export function backupToDataSet(raw: unknown): DataSet {
   const data = raw as { version?: number }
-  if (data?.version === 2) return data as Backup
+  // 口座（accounts）がない頃の v2 バックアップにも対応
+  if (data?.version === 2) return { ...(data as Backup), accounts: (data as Backup).accounts ?? [] }
   if (data?.version === 1) return convertLegacy(raw as LegacyData).data
   throw new Error('対応していないバックアップ形式です')
 }

@@ -179,3 +179,11 @@ input, select { width: 100%; padding: 9px 10px; border: 1px solid var(--border);
 .sync-state { margin: 6px 0; font-size: 14px; font-weight: 600; color: var(--ok-text); }
 .sync-state.error, .sync-state.offline { color: var(--warn-text); }
 .sync-form { margin-top: 10px; }
+
+/* 口座 */
+.cf-tab-note.neg { color: var(--neg); background: var(--warn-soft); }
+.cf-warn.neg { color: var(--neg); }
+.settle-list li { padding: 6px 0; }
+.settle-item { display: flex; align-items: center; gap: 10px; width: 100%; font-size: 14px; cursor: pointer; }
+.settle-item input { width: 20px; height: 20px; flex-shrink: 0; }
+.account-balance { align-self: flex-start; margin-top: 6px; }

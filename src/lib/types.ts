@@ -17,6 +17,22 @@ export interface Member {
   daysPerMonth: number
   /** 税・社会保険などの控除率（%） */
   deductionRate: number
+  /** 給料の振込口座 */
+  accountId?: string
+}
+
+/** 銀行口座。残高を入れた口座だけ繰越を計算する */
+export interface Account {
+  id?: string
+  name: string
+  /** 名義人 */
+  ownerId?: string
+  order: number
+  /** 残高（balanceDate 時点） */
+  balance?: number
+  balanceDate?: YMD
+  /** balanceDate 当日の予定のうち、まだ残高に反映されていないもの（予定のキー） */
+  unsettled?: string[]
 }
 
 /** あるサイクルに実際に振り込まれた手取り額 */
@@ -42,6 +58,8 @@ export interface PaymentMethod {
   monthOffset: number
   /** カード名義人。未設定なら共通 */
   ownerId?: string
+  /** 引落（支払い）口座。未設定なら最初の口座 */
+  accountId?: string
   order: number
 }
 
@@ -79,7 +97,9 @@ export interface Settings {
   cycleStartDay: number
   /** 先取り貯金額 */
   savings: number
-  /** 口座残高（複数口座なら合計）。この日までの入出金が反映済みの額 */
+  /** 先取り貯金を出す口座。未設定なら最初の口座 */
+  savingsAccountId?: string
+  /** 旧形式の口座残高（口座が 1 つだった頃）。移行後は使わない */
   balance?: number
   balanceDate?: YMD
 }

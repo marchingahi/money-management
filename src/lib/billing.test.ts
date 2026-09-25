@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { billingOf } from './billing'
-import { applyCarry, cashflowFor, expectedTakeHome, outflows, summarize, upcomingBillings } from './budget'
+import { cashflowFor, expectedTakeHome, NO_ACCOUNT, outflows, projectAccounts, summarize, upcomingBillings } from './budget'
 import { cycleOf, dayWithinCycle, shiftCycle } from './dates'
-import type { Member, PaymentMethod } from './types'
+import type { Account, Member, PaymentMethod } from './types'
 
 const card = (id: number, name: string, closingDay: number, paymentDay: number): PaymentMethod => ({
   id: String(id),
@@ -150,22 +150,48 @@ describe('summarize', () => {
     expect(after.cards.map((c) => [c.paymentDate, c.amount])).toEqual([['2026-12-28', 4000]])
   })
 
-  it('applyCarry: 口座残高（入力日までの入出金は反映済み）から繰越を計算', () => {
-    const cash: PaymentMethod = { id: '9', name: '現金', kind: 'cash', closingDay: 31, paymentDay: 31, monthOffset: 0, order: 9 }
-    const methods = [olive, saison, cash]
+  it('projectAccounts: 口座ごとに繰越を計算し、当日の未反映指定と残高不足を扱う', () => {
+    const cash: PaymentMethod = { id: '9', name: '現金', kind: 'cash', closingDay: 31, paymentDay: 31, monthOffset: 0, order: 9, accountId: NO_ACCOUNT }
+    const methods = [{ ...olive, accountId: 'A' }, { ...saison, accountId: 'B' }, cash]
+    const people = [
+      { ...husband, accountId: 'A' },
+      { ...wife, accountId: 'B' },
+    ]
     const txs = [
-      { id: '1', date: '2026-08-20', amount: 30000, category: '食費', methodId: '1', memo: '' }, // 9/28 引落
-      { id: '2', date: '2026-09-26', amount: 5000, category: '食費', methodId: '1', memo: '' }, // 10/26 引落
-      { id: '3', date: '2026-09-05', amount: 7000, category: '食費', methodId: '3', memo: '' }, // 10/5 引落
-      { id: '4', date: '2026-09-25', amount: 1000, category: '食費', methodId: '9', memo: '' }, // 入力日当日 → 反映済み
+      { id: '1', date: '2026-08-20', amount: 30000, category: '食費', methodId: '1', memo: '' }, // A: 9/28 引落
+      { id: '2', date: '2026-09-26', amount: 5000, category: '食費', methodId: '1', memo: '' }, // A: 10/26 引落
+      { id: '3', date: '2026-09-05', amount: 7000, category: '食費', methodId: '3', memo: '' }, // B: 10/5 引落
+      { id: '4', date: '2026-09-27', amount: 1000, category: '食費', methodId: '9', memo: '' }, // 財布の現金 → 口座に影響しない
+    ]
+    const s = { ...settings, savingsAccountId: 'A' }
+    const accounts: Account[] = [
+      // 9/25 に残高を入れたが、自分の給料はまだ振り込まれていない
+      { id: 'A', name: '三井住友', order: 1, balance: 50000, balanceDate: '2026-09-25', unsettled: ['income:1@2026-09-25'] },
+      { id: 'B', name: '楽天', order: 2, balance: 5000, balanceDate: '2026-09-25' },
     ]
     const flows = outflows('2026-09-25', methods, txs, [], [])
-    const cfs = [0, 1].map((n) => cashflowFor(shiftCycle(cycle, n, 25), members, [], flows, settings))
-    const [cur, next] = applyCarry(cfs, 50000, '2026-09-25')
-    // 今日の給料・貯金・現金は反映済み。9/28 と 10/5 の引落だけが残高から出ていく
-    expect(cur).toEqual({ balanceDate: '2026-09-25', fromInput: true, opening: 50000, closing: 50000 - 37000 })
-    // 次の給料 353,680 − 貯金 50,000 − 10/26 引落 5,000
-    expect(next).toEqual({ balanceDate: '2026-09-25', fromInput: false, opening: 13000, closing: 13000 + 353680 - 55000 })
+    const cfs = [0, 1].map((n) => cashflowFor(shiftCycle(cycle, n, 25), people, [], flows, s))
+    const [cur, next] = projectAccounts(cfs, accounts, s)!
+
+    // A: 50,000 + 未反映の給料 250,000 − 9/28 引落 30,000（貯金は当日反映済み）
+    expect(cur.accounts[0]).toMatchObject({ fromInput: true, opening: 50000, closing: 270000, shortage: null })
+    // B: 5,000 − 10/5 引落 7,000 → 不足
+    expect(cur.accounts[1]).toMatchObject({
+      closing: -2000,
+      shortage: { date: '2026-10-05', balance: -2000, label: 'セゾン 引落' },
+    })
+    expect(cur.closing).toBe(268000)
+
+    // 次の給料: A = 270,000 + 250,000 − 貯金 50,000 − 10/26 引落 5,000、B = −2,000 + 103,680
+    expect(next.accounts.map((a) => [a.fromInput, a.opening, a.closing])).toEqual([
+      [false, 270000, 465000],
+      [false, -2000, 101680],
+    ])
+  })
+
+  it('projectAccounts: 残高を入れた口座がなければ null', () => {
+    const cf = cashflowFor(cycle, members, [], [], settings)
+    expect(projectAccounts([cf], [{ id: 'A', name: 'x', order: 1 }], settings)).toBeNull()
   })
 
   it('upcomingBillings はカード×引落日で合算し、未入力の固定費を見込みで含める', () => {

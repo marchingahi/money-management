@@ -1,5 +1,5 @@
 import { SEED_MEMBERS, SEED_METHODS, newMember } from './seed'
-import type { FixedCost, Income, Member, PaymentMethod, Settings, Transaction } from './types'
+import type { Account, FixedCost, Income, Member, PaymentMethod, Settings, Transaction } from './types'
 
 /**
  * 旧形式（連番 ID）のデータを、同期できる文字列 ID の形式に変換する。
@@ -25,6 +25,7 @@ export interface LegacyData {
 export interface DataSet {
   members: Member[]
   incomes: Income[]
+  accounts: Account[]
   methods: PaymentMethod[]
   fixedCosts: FixedCost[]
   transactions: Transaction[]
@@ -65,7 +66,7 @@ export function convertLegacy(legacy: LegacyData, uuid: () => string = () => cry
 
   const has = (list: { id?: string }[], id?: string) => list.some((x) => x.id === id)
   return {
-    data: { members, incomes, methods, fixedCosts, transactions, settings: legacy.settings },
+    data: { members, incomes, accounts: [], methods, fixedCosts, transactions, settings: legacy.settings },
     deletedSeedIds: {
       members: SEED_MEMBERS.filter((s) => !has(members, s.id)).map((s) => s.id!),
       methods: SEED_METHODS.filter((s) => !has(methods, s.id)).map((s) => s.id!),

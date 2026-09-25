@@ -141,7 +141,7 @@ input, select { width: 100%; padding: 9px 10px; border: 1px solid var(--border);
   .app { max-width: 1040px; }
   .fab { right: max(24px, calc(50vw - 500px)); }
   .home { display: grid; grid-template-columns: 1fr 1fr; align-items: start; }
-  .home .hero { grid-row: span 2; }
+  .home .hero { grid-column: 1 / -1; }
   .sheet-backdrop { align-items: center; }
   .sheet { border-radius: 18px; }
 }
@@ -191,3 +191,8 @@ input, select { width: 100%; padding: 9px 10px; border: 1px solid var(--border);
 /* 振替 */
 .amount.transfer { font-weight: 400; color: var(--muted); }
 .warn-action { display: block; margin-top: 6px; font-weight: 600; text-align: left; }
+
+/* カードの一覧から追加 */
+.preset-search { margin-top: 12px; }
+.preset-list { margin-top: 8px; max-height: 50dvh; overflow-y: auto; }
+.preset-list a { color: var(--accent); flex-shrink: 0; }

@@ -6,6 +6,7 @@ import { expectedTakeHome, NO_ACCOUNT } from '../lib/budget'
 import { formatMD, todayYMD } from '../lib/dates'
 import { KIND_LABEL, type Account, type MethodKind, type PayType } from '../lib/types'
 import { dayLabel, yen, type AppData } from '../useData'
+import { CardPresetSheet } from './CardPresetSheet'
 import { ImportSheet } from './ImportSheet'
 import { SyncSection } from './SyncSection'
 
@@ -96,6 +97,7 @@ export function SettingsView({ data }: { data: AppData }) {
   const { settings, members, accounts, methods, fixedCosts, transactions } = data
   const [message, setMessage] = useState('')
   const [importing, setImporting] = useState(false)
+  const [addingMethod, setAddingMethod] = useState(false)
 
   const deleteMethod = async (id: string) => {
     const used =
@@ -374,6 +376,7 @@ export function SettingsView({ data }: { data: AppData }) {
                       value={m.monthOffset}
                       onChange={(e) => repo.update('methods', m.id, { monthOffset: Number(e.target.value) })}
                     >
+                      <option value={0}>当月</option>
                       <option value={1}>翌月</option>
                       <option value={2}>翌々月</option>
                     </select>
@@ -390,21 +393,15 @@ export function SettingsView({ data }: { data: AppData }) {
             </button>
           </div>
         ))}
-        <button
-          className="btn"
-          onClick={() =>
-            repo.add('methods', {
-              name: '新しいカード',
-              kind: 'credit',
-              closingDay: 31,
-              paymentDay: 27,
-              monthOffset: 1,
-              order: Math.max(0, ...methods.map((m) => m.order)) + 1,
-            })
-          }
-        >
-          ＋ 支払い方法を追加
+        <button className="btn" onClick={() => setAddingMethod(true)}>
+          ＋ 支払い方法を追加（主要カードは一覧から）
         </button>
+        {addingMethod && (
+          <CardPresetSheet
+            nextOrder={Math.max(0, ...methods.map((m) => m.order)) + 1}
+            onClose={() => setAddingMethod(false)}
+          />
+        )}
       </section>
 
       <section className="card">

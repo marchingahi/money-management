@@ -44,7 +44,6 @@ export function Home({ data, onEntry }: Props) {
 
   return (
     <div className="home">
-      {!needsSetup && <CashflowCard data={data} cycles={cycles} leadCycles={leadCycles} flows={flows} />}
       <section className="card hero">
         <p className="muted">
           {formatMD(cycle.start)} 〜 {formatMD(cycle.end)} のサイクル
@@ -99,6 +98,7 @@ export function Home({ data, onEntry }: Props) {
           </>
         )}
       </section>
+      {!needsSetup && <CashflowCard data={data} cycles={cycles} leadCycles={leadCycles} flows={flows} />}
 
       <section className="card">
         <h2>今後の引落予定</h2>

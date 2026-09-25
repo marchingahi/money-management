@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { billingOf } from './billing'
-import { cashflowFor, expectedTakeHome, NO_ACCOUNT, outflows, projectAccounts, summarize, upcomingBillings } from './budget'
+import { budgetIncomeCycle, cashflowFor, expectedTakeHome, NO_ACCOUNT, outflows, projectAccounts, summarize, upcomingBillings } from './budget'
 import { cycleOf, dayWithinCycle, shiftCycle } from './dates'
 import type { Account, Member, PaymentMethod } from './types'
 
@@ -118,6 +118,21 @@ describe('summarize', () => {
     expect(s.remaining).toBe(213680 - 5000)
     expect(s.daysLeft).toBe(10)
     expect(s.perDay).toBe(20868)
+  })
+
+  it('今サイクルの予算は、既定では次の給料を元にする（カード払いで今使った分は次の給料から払うため）', () => {
+    const incomes = [
+      { memberId: '1', cycleStart: '2026-09-25', amount: 262000 }, // 今回の給料（10/13 までの引落に使う）
+      { memberId: '1', cycleStart: '2026-10-25', amount: 240000 }, // 次の給料
+    ]
+    const next = budgetIncomeCycle(cycle, settings)
+    expect(next.start).toBe('2026-10-25')
+    const s = summarize(cycle, '2026-10-15', members, incomes, fixedCosts, txs, settings, next)
+    expect(s.incomes.map((i) => i.amount)).toEqual([240000, 103680])
+    expect(s.income).toBe(343680)
+
+    const cur = budgetIncomeCycle(cycle, { ...settings, budgetIncome: 'current' })
+    expect(summarize(cycle, '2026-10-15', members, incomes, fixedCosts, txs, settings, cur).income).toBe(365680)
   })
 
   it('cashflowFor: 給料からそのサイクル中の引落・現金支出・貯金を引く', () => {

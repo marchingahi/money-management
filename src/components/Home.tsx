@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { outflows, summarize, type IncomeStatus } from '../lib/budget'
+import { budgetIncomeCycle, outflows, summarize, type IncomeStatus } from '../lib/budget'
 import { cycleOf, formatMD, fromYMD, shiftCycle, todayYMD } from '../lib/dates'
 import { FIXED_CATEGORY, type Transaction } from '../lib/types'
 import { dayLabel, yen, type AppData } from '../useData'
@@ -16,7 +16,8 @@ export function Home({ data, onEntry }: Props) {
   const [editingIncome, setEditingIncome] = useState<IncomeStatus | null>(null)
   const today = todayYMD()
   const cycle = cycleOf(today, settings.cycleStartDay)
-  const s = summarize(cycle, today, members, incomes, fixedCosts, transactions, settings)
+  const incomeCycle = budgetIncomeCycle(cycle, settings)
+  const s = summarize(cycle, today, members, incomes, fixedCosts, transactions, settings, incomeCycle)
   const cycles = [0, 1, 2].map((n) => shiftCycle(cycle, n, settings.cycleStartDay))
   const flows = outflows(today, methods, transactions, fixedCosts, cycles)
   // 口座残高の入力日が今のサイクルより前なら、そこから今のサイクルの手前まで（最大6回分）も繰越の計算に使う
@@ -64,7 +65,7 @@ export function Home({ data, onEntry }: Props) {
             </div>
             <dl className="breakdown">
               <div>
-                <dt>世帯の手取り</dt>
+                <dt>世帯の手取り（{formatMD(incomeCycle.start)}の給料）</dt>
                 <dd>{yen(s.income)}</dd>
               </div>
               {s.incomes.map((i) => (
@@ -174,7 +175,7 @@ export function Home({ data, onEntry }: Props) {
           </ul>
         </section>
       )}
-      {editingIncome && <IncomeForm status={editingIncome} cycle={cycle} onClose={() => setEditingIncome(null)} />}
+      {editingIncome && <IncomeForm status={editingIncome} cycle={incomeCycle} onClose={() => setEditingIncome(null)} />}
     </div>
   )
 }

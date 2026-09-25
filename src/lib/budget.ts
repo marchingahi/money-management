@@ -1,5 +1,5 @@
 import { billingOf } from './billing'
-import { daysBetween, dayWithinCycle, type Cycle } from './dates'
+import { daysBetween, dayWithinCycle, shiftCycle, type Cycle } from './dates'
 import { FIXED_CATEGORY, type Account, type Transfer, type FixedCost, type Income, type Member, type PaymentMethod, type Settings, type Transaction, type YMD } from './types'
 
 export interface FixedStatus {
@@ -65,6 +65,14 @@ export function incomeStatuses(members: Member[], incomes: Income[], cycle: Cycl
   })
 }
 
+/**
+ * 今サイクルの予算の元にする給料のサイクル。
+ * カード払いが中心なら、今使った分の多くは次の給料から引き落とされるので次のサイクルの給料を使う。
+ */
+export function budgetIncomeCycle(cycle: Cycle, settings: Settings): Cycle {
+  return settings.budgetIncome === 'current' ? cycle : shiftCycle(cycle, 1, settings.cycleStartDay)
+}
+
 export function summarize(
   cycle: Cycle,
   today: YMD,
@@ -73,8 +81,10 @@ export function summarize(
   fixedCosts: FixedCost[],
   txs: Transaction[],
   settings: Settings,
+  /** 予算の元にする給料のサイクル（カード払い中心なら次のサイクル。budgetIncomeCycle を参照） */
+  incomeCycle: Cycle = cycle,
 ): BudgetSummary {
-  const incomes = incomeStatuses(members, incomeRecords, cycle)
+  const incomes = incomeStatuses(members, incomeRecords, incomeCycle)
   const income = incomes.reduce((s, i) => s + i.amount, 0)
   const fixed = fixedStatuses(fixedCosts, txs, cycle)
   const otherFixed = txs.filter((t) => t.fixedCostId == null && t.category === FIXED_CATEGORY && inCycle(t.date, cycle))

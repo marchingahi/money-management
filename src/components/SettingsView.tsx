@@ -157,6 +157,18 @@ export function SettingsView({ data }: { data: AppData }) {
             先取り貯金（月額）
             <NumInput value={settings.savings} onCommit={(v) => repo.update('settings', 'main', { savings: v })} />
           </label>
+          <label>
+            今サイクルの予算に使う手取り
+            <select
+              value={settings.budgetIncome ?? 'next'}
+              onChange={(e) =>
+                repo.update('settings', 'main', { budgetIncome: e.target.value as 'next' | 'current' })
+              }
+            >
+              <option value="next">次の給料（カード払いが中心）</option>
+              <option value="current">今回の給料（現金払いが中心）</option>
+            </select>
+          </label>
           {accounts.length > 1 && (
             <label>
               先取り貯金を出す口座

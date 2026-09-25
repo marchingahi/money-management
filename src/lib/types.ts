@@ -107,6 +107,11 @@ export interface Settings {
   cycleStartDay: number
   /** 先取り貯金額 */
   savings: number
+  /**
+   * 今サイクルの予算に使う手取り。カード払いが中心なら、今使った分を払うのは次の給料なので 'next'（既定）。
+   * 現金払いが中心なら 'current'
+   */
+  budgetIncome?: 'next' | 'current'
   /** 先取り貯金を出す口座。未設定なら最初の口座 */
   savingsAccountId?: string
   /** 旧形式の口座残高（口座が 1 つだった頃）。移行後は使わない */

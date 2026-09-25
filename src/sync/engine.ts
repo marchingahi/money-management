@@ -28,13 +28,15 @@ import { onLocalChange } from '../repo'
 import { setStatus } from './status'
 
 /*
- * 端末内のデータ（IndexedDB）を正とし、Firestore の users/{uid}/{テーブル}/{id} と同期する。
+ * 端末内のデータ（IndexedDB）を正とし、Firestore の kakeibo/{uid}/{テーブル}/{id} と同期する。
  * - 送信: 「未送信」の印が付いたレコードを送る
  * - 受信: 前回受信した時刻より後にサーバーで更新されたドキュメントだけを購読する（読み取り回数を抑える）
  * - 競合: 両方で変更があった場合は、変更時刻（_modifiedAt）が新しい方を採用する
  */
 
 const BATCH_SIZE = 400
+/** 既存の Firebase プロジェクトに同居しても他のアプリのデータと混ざらないよう、専用のコレクションに保存する */
+const ROOT = 'kakeibo'
 
 let auth: Auth
 let fs: Firestore
@@ -66,7 +68,7 @@ async function start(user: User) {
   await refreshPending()
   for (const t of TABLES) {
     const last = ((await db.meta.get(pulledKey(t)))?.value as number | undefined) ?? 0
-    const q = query(collection(fs, 'users', uid, t), where('updatedAt', '>', Timestamp.fromMillis(last)))
+    const q = query(collection(fs, ROOT, uid, t), where('updatedAt', '>', Timestamp.fromMillis(last)))
     unsubs.push(
       onSnapshot(
         q,
@@ -140,7 +142,7 @@ async function push() {
         const batch = writeBatch(fs)
         for (const r of chunk) {
           const { _dirty: _d, updatedAt: _u, ...data } = r
-          batch.set(doc(fs, 'users', user, t, r.id), { ...data, updatedAt: serverTimestamp() })
+          batch.set(doc(fs, ROOT, user, t, r.id), { ...data, updatedAt: serverTimestamp() })
         }
         await batch.commit()
         // 送信中に変更されていなければ「送信済み」にする

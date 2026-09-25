@@ -1,5 +1,6 @@
 import { initializeApp, type FirebaseOptions } from 'firebase/app'
 import {
+  connectAuthEmulator,
   createUserWithEmailAndPassword,
   getAuth,
   onAuthStateChanged,
@@ -11,6 +12,7 @@ import {
 } from 'firebase/auth'
 import {
   collection,
+  connectFirestoreEmulator,
   doc,
   initializeFirestore,
   onSnapshot,
@@ -54,6 +56,11 @@ export function init(config: FirebaseOptions) {
   const app = initializeApp(config)
   auth = getAuth(app)
   fs = initializeFirestore(app, { ignoreUndefinedProperties: true })
+  // 開発時の動作確認用: VITE_FIREBASE_EMULATOR=1 でローカルのエミュレーターにつなぐ
+  if (import.meta.env.DEV && import.meta.env.VITE_FIREBASE_EMULATOR) {
+    connectAuthEmulator(auth, 'http://127.0.0.1:9099', { disableWarnings: true })
+    connectFirestoreEmulator(fs, '127.0.0.1', 8080)
+  }
   setStatus({ state: 'signedOut' })
   onAuthStateChanged(auth, (user) => (user ? start(user) : stop()))
   onLocalChange(() => schedulePush())

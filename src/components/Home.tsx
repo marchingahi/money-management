@@ -4,6 +4,7 @@ import { cycleOf, formatMD, fromYMD, shiftCycle, todayYMD } from '../lib/dates'
 import { FIXED_CATEGORY, type Transaction } from '../lib/types'
 import { dayLabel, yen, type AppData } from '../useData'
 import { CashflowCard } from './CashflowCard'
+import { PlannedCard } from './PlannedCard'
 import { IncomeForm } from './IncomeForm'
 
 interface Props {
@@ -17,9 +18,9 @@ export function Home({ data, onEntry }: Props) {
   const today = todayYMD()
   const cycle = cycleOf(today, settings.cycleStartDay)
   const incomeCycle = budgetIncomeCycle(cycle, settings)
-  const s = summarize(cycle, today, members, incomes, fixedCosts, transactions, settings, incomeCycle)
+  const s = summarize(cycle, today, members, incomes, fixedCosts, transactions, settings, incomeCycle, data.planned)
   const cycles = [0, 1, 2].map((n) => shiftCycle(cycle, n, settings.cycleStartDay))
-  const flows = outflows(today, methods, transactions, fixedCosts, cycles)
+  const flows = outflows(today, methods, transactions, fixedCosts, cycles, data.planned)
   // 口座残高の入力日が今のサイクルより前なら、そこから今のサイクルの手前まで（最大6回分）も繰越の計算に使う
   const oldestBalance = data.accounts
     .flatMap((a) => (a.balance != null && a.balanceDate ? [a.balanceDate] : []))
@@ -91,6 +92,15 @@ export function Home({ data, onEntry }: Props) {
                 <dt>先取り貯金</dt>
                 <dd>−{yen(s.savings)}</dd>
               </div>
+              {s.plannedTotal !== 0 && (
+                <div>
+                  <dt>予定の出費の確保</dt>
+                  <dd>
+                    {s.plannedTotal > 0 ? '−' : '+'}
+                    {yen(Math.abs(s.plannedTotal))}
+                  </dd>
+                </div>
+              )}
               <div>
                 <dt>使った額</dt>
                 <dd>−{yen(s.spent)}</dd>
@@ -100,6 +110,7 @@ export function Home({ data, onEntry }: Props) {
         )}
       </section>
       {!needsSetup && <CashflowCard data={data} cycles={cycles} leadCycles={leadCycles} flows={flows} />}
+      <PlannedCard data={data} cycle={cycle} statuses={s.planned} total={s.plannedTotal} onPay={onEntry} />
 
       <section className="card">
         <h2>今後の引落予定</h2>

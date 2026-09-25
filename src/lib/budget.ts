@@ -1,6 +1,7 @@
 import { billingOf } from './billing'
+import { plannedStatuses, type PlannedStatus } from './planned'
 import { daysBetween, dayWithinCycle, shiftCycle, type Cycle } from './dates'
-import { FIXED_CATEGORY, type Account, type Transfer, type FixedCost, type Income, type Member, type PaymentMethod, type Settings, type Transaction, type YMD } from './types'
+import { FIXED_CATEGORY, type Account, type PlannedExpense, type Transfer, type FixedCost, type Income, type Member, type PaymentMethod, type Settings, type Transaction, type YMD } from './types'
 
 export interface FixedStatus {
   cost: FixedCost
@@ -27,7 +28,10 @@ export interface BudgetSummary {
   /** 登録済み固定費に紐付かない「固定費」カテゴリの支出（Excel 取り込み分など） */
   otherFixed: Transaction[]
   savings: number
-  /** 自由に使える予算 = 収入 − 固定費 − 先取り貯金 */
+  /** 予定の出費のうち、このサイクルで確保する額（予定日のサイクルでは差額の調整分も） */
+  plannedTotal: number
+  planned: PlannedStatus[]
+  /** 自由に使える予算 = 収入 − 固定費 − 先取り貯金 − 予定の出費の確保 */
   budget: number
   /** 固定費以外で使った額（利用日ベース） */
   spent: number
@@ -83,20 +87,26 @@ export function summarize(
   settings: Settings,
   /** 予算の元にする給料のサイクル（カード払い中心なら次のサイクル。budgetIncomeCycle を参照） */
   incomeCycle: Cycle = cycle,
+  plans: (PlannedExpense & { id: string })[] = [],
 ): BudgetSummary {
   const incomes = incomeStatuses(members, incomeRecords, incomeCycle)
   const income = incomes.reduce((s, i) => s + i.amount, 0)
   const fixed = fixedStatuses(fixedCosts, txs, cycle)
-  const otherFixed = txs.filter((t) => t.fixedCostId == null && t.category === FIXED_CATEGORY && inCycle(t.date, cycle))
+  const otherFixed = txs.filter(
+    (t) => t.fixedCostId == null && t.plannedId == null && t.category === FIXED_CATEGORY && inCycle(t.date, cycle),
+  )
   const fixedTotal = fixed.reduce((s, f) => s + f.reserved, 0) + otherFixed.reduce((s, t) => s + t.amount, 0)
-  const budget = income - fixedTotal - settings.savings
+  const planned = plannedStatuses(plans, txs, cycle, settings.cycleStartDay, today)
+  const plannedTotal = planned.reduce((s, p) => s + p.thisCycleTotal, 0)
+  const budget = income - fixedTotal - settings.savings - plannedTotal
+  // 予定の出費の支払いは確保済みのお金から払うので、普段の支出には数えない
   const spent = txs
-    .filter((t) => !isFixedTx(t) && inCycle(t.date, cycle))
+    .filter((t) => !isFixedTx(t) && t.plannedId == null && inCycle(t.date, cycle))
     .reduce((s, t) => s + t.amount, 0)
   const remaining = budget - spent
   const daysLeft = inCycle(today, cycle) ? daysBetween(today, cycle.end) + 1 : null
   const perDay = daysLeft ? Math.floor(Math.max(remaining, 0) / daysLeft) : null
-  return { income, incomes, fixedTotal, otherFixed, savings: settings.savings, budget, spent, remaining, daysLeft, perDay, fixed }
+  return { income, incomes, fixedTotal, otherFixed, savings: settings.savings, plannedTotal, planned, budget, spent, remaining, daysLeft, perDay, fixed }
 }
 
 /** 口座などから実際にお金が出ていく単位（支払い方法 × 出金日） */
@@ -123,6 +133,7 @@ export function outflows(
   txs: Transaction[],
   fixedCosts: FixedCost[],
   cyclesForEstimates: Cycle[],
+  plans: PlannedExpense[] = [],
 ): Outflow[] {
   const byId = new Map(methods.map((m) => [m.id!, m]))
   const groups = new Map<string, Outflow>()
@@ -146,6 +157,9 @@ export function outflows(
   }
 
   for (const t of txs) add(t.date, t.amount, t.methodId, false, t.paymentMonth)
+  // 支払いの記録がまだない予定の出費は、予定日に予定額で出ていく見込みとして含める
+  const paidPlans = new Set(txs.flatMap((t) => (t.plannedId ? [t.plannedId] : [])))
+  for (const p of plans) if (!paidPlans.has(p.id!)) add(p.date, p.amount, p.methodId, true)
   for (const cycle of cyclesForEstimates) {
     for (const f of fixedStatuses(fixedCosts, txs, cycle)) {
       if (f.actual == null) add(f.date, f.cost.amount, f.cost.methodId, true)

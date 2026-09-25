@@ -35,6 +35,12 @@ export function EntryForm({ data, initial, onClose }: Props) {
   const [category, setCategory] = useState(initial?.category ?? CATEGORIES[0])
   const [memo, setMemo] = useState(initial?.memo ?? '')
   const [fixedCostId, setFixedCostId] = useState<string | undefined>(initial?.fixedCostId)
+  const [plannedId, setPlannedId] = useState<string | undefined>(initial?.plannedId)
+  // 支払いの記録がまだない予定の出費（＋この支出がすでに紐付いているもの）
+  const paidPlans = new Set(
+    data.transactions.flatMap((t) => (t.plannedId && t.id !== initial?.id ? [t.plannedId] : [])),
+  )
+  const openPlans = data.planned.filter((p) => !paidPlans.has(p.id) || p.id === plannedId)
 
   const method = data.methods.find((m) => m.id === methodId)
   // 取り込み時の引落月指定は、利用日とカードが変わっていない間だけ有効
@@ -46,8 +52,20 @@ export function EntryForm({ data, initial, onClose }: Props) {
   const categoryChoices: string[] = [...CATEGORIES, FIXED_CATEGORY]
   if (!categoryChoices.includes(category)) categoryChoices.push(category)
 
+  const choosePlanned = (id: string | undefined) => {
+    setPlannedId(id)
+    const plan = data.planned.find((p) => p.id === id)
+    if (!plan) return
+    setFixedCostId(undefined)
+    if (category === FIXED_CATEGORY) setCategory('その他')
+    setMethodId(plan.methodId)
+    if (!memo) setMemo(plan.name)
+    if (!amount) setAmount(String(plan.amount))
+  }
+
   const chooseFixed = (id: string | undefined) => {
     setFixedCostId(id)
+    if (id) setPlannedId(undefined)
     const fc = data.fixedCosts.find((f) => f.id === id)
     if (fc) {
       setMethodId(fc.methodId)
@@ -67,6 +85,7 @@ export function EntryForm({ data, initial, onClose }: Props) {
       methodId: method.id!,
       memo: memo.trim(),
       fixedCostId,
+      plannedId,
       paymentMonth,
       importKey: initial?.importKey,
     }
@@ -144,6 +163,20 @@ export function EntryForm({ data, initial, onClose }: Props) {
               {data.fixedCosts.map((f) => (
                 <option key={f.id} value={f.id}>
                   {f.name}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
+
+        {openPlans.length > 0 && (
+          <label className="field">
+            <span className="field-label">予定の出費の支払いとして記録（確保したお金から払う）</span>
+            <select value={plannedId ?? ''} onChange={(e) => choosePlanned(e.target.value || undefined)}>
+              <option value="">記録しない（普段の支出）</option>
+              {openPlans.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}（{formatMD(p.date)}・{p.amount.toLocaleString('ja-JP')}円）
                 </option>
               ))}
             </select>

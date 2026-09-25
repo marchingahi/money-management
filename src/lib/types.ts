@@ -44,6 +44,22 @@ export interface Income {
   amount: number
 }
 
+/**
+ * 予定の出費（旅行・車検・年払いの保険など）。
+ * 積立開始のサイクルから予定日の前のサイクルまで、毎サイクル均等に確保する
+ */
+export interface PlannedExpense {
+  id?: string
+  name: string
+  amount: number
+  /** 支払う予定日（カードなら利用日） */
+  date: YMD
+  methodId: string
+  /** 確保を始める日（このサイクルから確保する） */
+  reserveFrom: YMD
+  memo?: string
+}
+
 /** 口座間の振替（家計全体のお金は増減しない） */
 export interface Transfer {
   id?: string
@@ -99,6 +115,8 @@ export interface Transaction {
   paymentMonth?: string
   /** Excel 取り込み時の重複判定キー */
   importKey?: string
+  /** 予定の出費の支払いとして記録した場合の紐付け */
+  plannedId?: string
 }
 
 export interface Settings {

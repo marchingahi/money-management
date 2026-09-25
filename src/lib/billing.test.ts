@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { billingOf } from './billing'
-import { expectedTakeHome, summarize, upcomingBillings } from './budget'
+import { cashflowFor, expectedTakeHome, outflows, summarize, upcomingBillings } from './budget'
 import { cycleOf, dayWithinCycle, shiftCycle } from './dates'
 import type { Member, PaymentMethod } from './types'
 
@@ -118,6 +118,36 @@ describe('summarize', () => {
     expect(s.remaining).toBe(213680 - 5000)
     expect(s.daysLeft).toBe(10)
     expect(s.perDay).toBe(20868)
+  })
+
+  it('cashflowFor: 給料からそのサイクル中の引落・現金支出・貯金を引く', () => {
+    const cash: PaymentMethod = { id: 9, name: '現金', kind: 'cash', closingDay: 31, paymentDay: 31, monthOffset: 0, order: 9 }
+    const methods = [olive, saison, cash]
+    const txs = [
+      { id: 1, date: '2026-08-20', amount: 30000, category: '食費', methodId: 1, memo: '' }, // 8/31締め 9/28 引落 → 9/25 サイクル（今日の給料から払う）
+      { id: 2, date: '2026-09-26', amount: 5000, category: '食費', methodId: 1, memo: '' }, // 10/26 引落 → 10/25 サイクル
+      { id: 3, date: '2026-09-05', amount: 7000, category: '食費', methodId: 3, memo: '' }, // 9/10締め 10/5 引落 → 9/25 サイクル
+      { id: 4, date: '2026-09-30', amount: 2000, category: '食費', methodId: 9, memo: '' }, // 現金 → 9/25 サイクル
+      { id: 5, date: '2026-10-01', amount: 4000, category: '固定費', methodId: 1, memo: '', paymentMonth: '2026-12' },
+    ]
+    const flows = outflows('2026-09-25', methods, txs, [], [])
+    const cur = cashflowFor(cycle, members, [], flows, settings)
+    expect(cur.income).toBe(353680)
+    expect(cur.cards.map((c) => [c.method.name, c.paymentDate, c.amount, c.confirmed])).toEqual([
+      ['Olive', '2026-09-28', 30000, true],
+      ['セゾン', '2026-10-05', 7000, true],
+    ])
+    expect(cur.direct.map((d) => [d.method.name, d.amount])).toEqual([['現金', 2000]])
+    expect(cur.remaining).toBe(353680 - 39000 - 50000)
+    expect(cur.open).toBe(false)
+
+    const next = cashflowFor(shiftCycle(cycle, 1, 25), members, [], flows, settings)
+    expect(next.cards.map((c) => [c.paymentDate, c.amount, c.confirmed])).toEqual([['2026-10-26', 5000, false]])
+    expect(next.open).toBe(true)
+
+    // 引落月指定（Excel の支払月）12 月 → 12/28 引落 → 12/25 サイクル
+    const after = cashflowFor(shiftCycle(cycle, 3, 25), members, [], flows, settings)
+    expect(after.cards.map((c) => [c.paymentDate, c.amount])).toEqual([['2026-12-28', 4000]])
   })
 
   it('upcomingBillings はカード×引落日で合算し、未入力の固定費を見込みで含める', () => {

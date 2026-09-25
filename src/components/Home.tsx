@@ -1,8 +1,9 @@
 import { useState } from 'react'
-import { summarize, upcomingBillings, type IncomeStatus } from '../lib/budget'
+import { outflows, summarize, type IncomeStatus } from '../lib/budget'
 import { cycleOf, formatMD, fromYMD, shiftCycle, todayYMD } from '../lib/dates'
 import { FIXED_CATEGORY, type Transaction } from '../lib/types'
 import { dayLabel, yen, type AppData } from '../useData'
+import { CashflowCard } from './CashflowCard'
 import { IncomeForm } from './IncomeForm'
 
 interface Props {
@@ -16,10 +17,9 @@ export function Home({ data, onEntry }: Props) {
   const today = todayYMD()
   const cycle = cycleOf(today, settings.cycleStartDay)
   const s = summarize(cycle, today, members, incomes, fixedCosts, transactions, settings)
-  const billings = upcomingBillings(today, methods, transactions, fixedCosts, [
-    cycle,
-    shiftCycle(cycle, 1, settings.cycleStartDay),
-  ])
+  const cycles = [0, 1, 2].map((n) => shiftCycle(cycle, n, settings.cycleStartDay))
+  const flows = outflows(today, methods, transactions, fixedCosts, cycles)
+  const billings = flows.filter((o) => o.method.kind === 'credit' && o.paymentDate >= today)
   const memberName = (id?: number) => members.find((m) => m.id === id)?.name
   const methodName = (id: number) => methods.find((m) => m.id === id)?.name ?? '（削除済み）'
   const usedRatio = s.budget > 0 ? Math.min(s.spent / s.budget, 1) : 1
@@ -34,6 +34,7 @@ export function Home({ data, onEntry }: Props) {
 
   return (
     <div className="home">
+      {!needsSetup && <CashflowCard data={data} cycles={cycles} flows={flows} />}
       <section className="card hero">
         <p className="muted">
           {formatMD(cycle.start)} 〜 {formatMD(cycle.end)} のサイクル
@@ -42,7 +43,7 @@ export function Home({ data, onEntry }: Props) {
           <p className="setup-note">「設定」で手取りの見込み額を入力すると、使える金額が表示されます。</p>
         ) : (
           <>
-            <p className="hero-label">あと使える額</p>
+            <p className="hero-label">今サイクルの予算（使った日で計算） あと使える額</p>
             <p className={`hero-amount ${s.remaining < 0 ? 'neg' : ''}`}>{yen(s.remaining)}</p>
             {s.perDay != null && (
               <p className="hero-sub">

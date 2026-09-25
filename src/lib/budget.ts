@@ -89,43 +89,45 @@ export function summarize(
   return { income, incomes, fixedTotal, otherFixed, savings: settings.savings, budget, spent, remaining, daysLeft, perDay, fixed }
 }
 
-export interface UpcomingBilling {
+/** 口座などから実際にお金が出ていく単位（支払い方法 × 出金日） */
+export interface Outflow {
   method: PaymentMethod
+  /** 出金日。クレジットは引落日、それ以外は利用日 */
   paymentDate: YMD
   closingDate: YMD
   amount: number
-  /** 締め日を過ぎて請求額が確定しているか */
+  /** 金額が確定しているか（クレジットは締め日を過ぎたか） */
   confirmed: boolean
   /** 未入力の固定費見込みを含むか */
   includesEstimate: boolean
 }
+export type UpcomingBilling = Outflow
 
 /**
- * 今日以降に引き落とされるクレジットカードの請求を、カード×引落日ごとにまとめる。
- * 当サイクル以降の固定費で実額が未入力のものは見込み額で含める。
+ * すべての支出を出金日ごとにまとめる。
+ * cyclesForEstimates の固定費で実額が未入力のものは見込み額で含める。
  */
-export function upcomingBillings(
+export function outflows(
   today: YMD,
   methods: PaymentMethod[],
   txs: Transaction[],
   fixedCosts: FixedCost[],
   cyclesForEstimates: Cycle[],
-): UpcomingBilling[] {
+): Outflow[] {
   const byId = new Map(methods.map((m) => [m.id!, m]))
-  const groups = new Map<string, UpcomingBilling>()
+  const groups = new Map<string, Outflow>()
 
   const add = (date: YMD, amount: number, methodId: number, estimate: boolean, paymentMonth?: string) => {
     const method = byId.get(methodId)
-    if (!method || method.kind !== 'credit') return
+    if (!method) return
     const { closingDate, paymentDate } = billingOf(date, method, paymentMonth)
-    if (paymentDate < today) return
     const key = `${methodId}|${paymentDate}`
     const g = groups.get(key) ?? {
       method,
       paymentDate,
       closingDate,
       amount: 0,
-      confirmed: closingDate < today,
+      confirmed: method.kind !== 'credit' || closingDate < today,
       includesEstimate: false,
     }
     g.amount += amount
@@ -143,4 +145,69 @@ export function upcomingBillings(
   return [...groups.values()].sort(
     (a, b) => a.paymentDate.localeCompare(b.paymentDate) || a.method.order - b.method.order,
   )
+}
+
+/** 今日以降に引き落とされるクレジットカードの請求 */
+export function upcomingBillings(
+  today: YMD,
+  methods: PaymentMethod[],
+  txs: Transaction[],
+  fixedCosts: FixedCost[],
+  cyclesForEstimates: Cycle[],
+): UpcomingBilling[] {
+  return outflows(today, methods, txs, fixedCosts, cyclesForEstimates).filter(
+    (o) => o.method.kind === 'credit' && o.paymentDate >= today,
+  )
+}
+
+/** ある給料サイクルの「引落ベース」の収支: その給料から、期間中に出ていくお金を引いた残り */
+export interface CycleCashflow {
+  cycle: Cycle
+  incomes: IncomeStatus[]
+  income: number
+  /** 期間中に引き落とされるクレジットカードの請求 */
+  cards: Outflow[]
+  /** 期間中に使った現金・QR・デビットなど（支払い方法ごとの合計） */
+  direct: { method: PaymentMethod; amount: number; includesEstimate: boolean }[]
+  outTotal: number
+  savings: number
+  remaining: number
+  /** 締め日前のカード請求を含む（これから使うほど減る） */
+  open: boolean
+}
+
+export function cashflowFor(
+  cycle: Cycle,
+  members: Member[],
+  incomeRecords: Income[],
+  flows: Outflow[],
+  settings: Settings,
+): CycleCashflow {
+  const incomes = incomeStatuses(members, incomeRecords, cycle)
+  const income = incomes.reduce((s, i) => s + i.amount, 0)
+  const inRange = flows.filter((o) => inCycle(o.paymentDate, cycle))
+  const cards = inRange.filter((o) => o.method.kind === 'credit')
+
+  const directMap = new Map<number, CycleCashflow['direct'][number]>()
+  for (const o of inRange) {
+    if (o.method.kind === 'credit') continue
+    const d = directMap.get(o.method.id!) ?? { method: o.method, amount: 0, includesEstimate: false }
+    d.amount += o.amount
+    d.includesEstimate ||= o.includesEstimate
+    directMap.set(o.method.id!, d)
+  }
+  const direct = [...directMap.values()].sort((a, b) => a.method.order - b.method.order)
+
+  const outTotal = inRange.reduce((s, o) => s + o.amount, 0)
+  return {
+    cycle,
+    incomes,
+    income,
+    cards,
+    direct,
+    outTotal,
+    savings: settings.savings,
+    remaining: income - outTotal - settings.savings,
+    open: cards.some((c) => !c.confirmed),
+  }
 }

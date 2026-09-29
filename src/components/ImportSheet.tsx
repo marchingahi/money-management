@@ -59,8 +59,7 @@ export function ImportSheet({ data, onClose }: Props) {
 
   const plan = useMemo(() => {
     if (!parsed) return null
-    const existing = new Set(data.transactions.flatMap((t) => (t.importKey ? [t.importKey] : [])))
-    return planImport(parsed.rows, mapping, data.methods, existing)
+    return planImport(parsed.rows, mapping, data.methods, data.transactions)
   }, [parsed, mapping, data.methods, data.transactions])
 
   const methodCounts = useMemo(() => {
@@ -95,12 +94,17 @@ export function ImportSheet({ data, onClose }: Props) {
   const shownImpact = committedImpact ?? impact
 
   const run = async () => {
-    if (!plan?.transactions.length) return
+    if (!plan || (plan.transactions.length === 0 && plan.reconciled.length === 0)) return
     setBusy(true)
     try {
-      await repo.bulkAdd('transactions', plan.transactions)
+      if (plan.transactions.length) await repo.bulkAdd('transactions', plan.transactions)
+      for (const u of plan.reconciled) {
+        const existing = data.transactions.find((t) => t.id === u.id)
+        if (!existing) continue
+        await repo.put('transactions', { ...existing, importKey: u.importKey, ...(u.paymentMonth && { paymentMonth: u.paymentMonth }) })
+      }
       setCommittedImpact(impact)
-      setDone(plan.transactions.length)
+      setDone(plan.transactions.length + plan.reconciled.length)
     } finally {
       setBusy(false)
     }
@@ -183,6 +187,12 @@ export function ImportSheet({ data, onClose }: Props) {
                 <dt>合計金額</dt>
                 <dd>{yen(plan.transactions.reduce((s, t) => s + t.amount, 0))}</dd>
               </div>
+              {plan.reconciled.length > 0 && (
+                <div>
+                  <dt>レシート入力などと統合</dt>
+                  <dd>{plan.reconciled.length}件</dd>
+                </div>
+              )}
               {plan.duplicates > 0 && (
                 <div>
                   <dt>取り込み済み（スキップ）</dt>
@@ -226,8 +236,12 @@ export function ImportSheet({ data, onClose }: Props) {
               <p className="hint">{done}件を取り込みました。上の予算・残高への影響が確定しました。履歴画面で明細を確認できます。</p>
             ) : (
               <div className="sheet-actions">
-                <button className="btn primary" disabled={busy || plan.transactions.length === 0} onClick={run}>
-                  {plan.transactions.length}件を取り込む
+                <button
+                  className="btn primary"
+                  disabled={busy || (plan.transactions.length === 0 && plan.reconciled.length === 0)}
+                  onClick={run}
+                >
+                  {plan.transactions.length + plan.reconciled.length}件を取り込む
                 </button>
               </div>
             )}

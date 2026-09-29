@@ -94,7 +94,7 @@ describe('parseSheet / planImport', () => {
   it('取り込み計画: 固定費カテゴリ・ずれた支払月の保持・重複除外', () => {
     const { rows } = parseSheet(table)
     const mapping = Object.fromEntries(rows.map((r) => [r.methodName, guessMethod(r.methodName, methods)]))
-    const plan = planImport(rows, mapping, methods, new Set())
+    const plan = planImport(rows, mapping, methods, [])
     expect(plan.transactions.map((t) => [t.category, t.amount, t.paymentMonth ?? null])).toEqual([
       ['未分類', 1936, null],
       ['固定費', 40000, null],
@@ -104,14 +104,26 @@ describe('parseSheet / planImport', () => {
     ])
     expect(billingOf('2026-05-31', methods[1], '2026-07').paymentDate).toBe('2026-07-27')
 
-    const again = planImport(rows, mapping, methods, new Set(plan.transactions.map((t) => t.importKey!)))
-    expect(again).toEqual({ transactions: [], duplicates: 5 })
+    const existing = plan.transactions.map((t, i) => ({ ...t, id: `t${i}` }))
+    const again = planImport(rows, mapping, methods, existing)
+    expect(again).toEqual({ transactions: [], reconciled: [], duplicates: 5 })
+  })
+
+  it('取り込み前にレシートなどで入力済みの支出は、取り込みキーを付けて統合する（新規登録しない）', () => {
+    const { rows } = parseSheet(table)
+    const mapping = Object.fromEntries(rows.map((r) => [r.methodName, guessMethod(r.methodName, methods)]))
+    // レシート入力（取り込みキーなし）で、1件目と同じ日付・支払い方法・金額の支出が先に登録済み
+    const receipt = { id: 'r1', date: '2026-04-05', amount: 1936, category: '食費', methodId: '6', memo: 'レシート入力分' }
+    const plan = planImport(rows, mapping, methods, [receipt])
+    expect(plan.reconciled).toEqual([{ id: 'r1', importKey: '2026-04-05|EPOSカード|1936|0#1' }])
+    expect(plan.transactions.map((t) => t.amount)).toEqual([40000, 40000, 3000, -500])
+    expect(plan.duplicates).toBe(0)
   })
 
   it('取り込んだ固定費カテゴリは普段の支出ではなく固定費として集計', () => {
     const { rows } = parseSheet(table)
     const mapping = Object.fromEntries(rows.map((r) => [r.methodName, guessMethod(r.methodName, methods)]))
-    const txs = planImport(rows, mapping, methods, new Set()).transactions
+    const txs = planImport(rows, mapping, methods, []).transactions
     const s = summarize(cycleOf('2026-04-05', 25), '2026-04-05', [], [], [], txs, {
       id: 'main',
       cycleStartDay: 25,

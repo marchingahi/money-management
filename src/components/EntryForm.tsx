@@ -1,7 +1,8 @@
-import { useState } from 'react'
+import { useState, type ChangeEvent } from 'react'
 import { repo } from '../repo'
 import { billingOf } from '../lib/billing'
 import { formatMD, todayYMD } from '../lib/dates'
+import { recognizeReceipt } from '../lib/receiptOcr'
 import { CATEGORIES, FIXED_CATEGORY, type Transaction } from '../lib/types'
 import type { AppData } from '../useData'
 
@@ -36,6 +37,8 @@ export function EntryForm({ data, initial, onClose }: Props) {
   const [memo, setMemo] = useState(initial?.memo ?? '')
   const [fixedCostId, setFixedCostId] = useState<string | undefined>(initial?.fixedCostId)
   const [plannedId, setPlannedId] = useState<string | undefined>(initial?.plannedId)
+  const [ocrBusy, setOcrBusy] = useState(false)
+  const [ocrNote, setOcrNote] = useState('')
   // 払い終わっていない予定の出費（一部払いを含む）＋この支出がすでに紐付いているもの
   const paidByPlan = new Map<string, number>()
   for (const t of data.transactions) {
@@ -108,6 +111,32 @@ export function EntryForm({ data, initial, onClose }: Props) {
     onClose()
   }
 
+  const onReceiptPhoto = async (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    e.target.value = ''
+    if (!file) return
+    setOcrNote('')
+    setOcrBusy(true)
+    try {
+      const result = await recognizeReceipt(file)
+      const found: string[] = []
+      if (result.amount != null) {
+        setAmount(String(result.amount))
+        setRefund(false)
+        found.push('金額')
+      }
+      if (result.date) {
+        setDate(result.date)
+        found.push('日付')
+      }
+      setOcrNote(found.length ? `${found.join('・')}を読み取りました。内容を確認してください` : '金額・日付を読み取れませんでした。手入力してください')
+    } catch (err) {
+      setOcrNote(err instanceof Error ? err.message : String(err))
+    } finally {
+      setOcrBusy(false)
+    }
+  }
+
   return (
     <div className="sheet-backdrop" onClick={onClose}>
       <div className="sheet" onClick={(e) => e.stopPropagation()} role="dialog" aria-label="支出の入力">
@@ -117,6 +146,16 @@ export function EntryForm({ data, initial, onClose }: Props) {
             ✕
           </button>
         </div>
+
+        {!editing && (
+          <div className="field">
+            <label className="btn file-btn">
+              {ocrBusy ? '読み取り中…' : '📷 レシートから読み取る（試験的）'}
+              <input type="file" accept="image/*" capture="environment" hidden disabled={ocrBusy} onChange={onReceiptPhoto} />
+            </label>
+            {ocrNote && <p className="hint">{ocrNote}</p>}
+          </div>
+        )}
 
         <label className={`amount-field ${refund ? 'refund' : ''}`}>
           <span>{refund ? '−¥' : '¥'}</span>

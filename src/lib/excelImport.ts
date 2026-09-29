@@ -146,9 +146,18 @@ export function guessMethod(excelName: string, methods: PaymentMethod[]): string
   return undefined
 }
 
+/** 取り込み前に、レシート入力などで先に記録しておいた支出に取り込みキーを付けて統合する */
+export interface ReconciledUpdate {
+  id: string
+  importKey: string
+  paymentMonth?: string
+}
+
 export interface ImportPlan {
   /** 新しく登録する支出 */
   transactions: Transaction[]
+  /** レシート入力などの既存の支出に取り込みキーを付けて統合する分 */
+  reconciled: ReconciledUpdate[]
   /** 取り込み済みのためスキップする件数 */
   duplicates: number
 }
@@ -156,15 +165,26 @@ export interface ImportPlan {
 /**
  * 取り込む支出を組み立てる。同じ内容の行が複数ある場合も区別できるよう、
  * 出現順の番号を含めたキーで重複を判定する（照合メモは後から埋まるのでキーに含めない）。
+ *
+ * 取り込みキーを持たない既存の支出（レシートからその場で入力した分など）のうち、
+ * 日付・支払い方法・金額が一致するものがあれば、新規登録の代わりにそちらへ統合する。
  */
 export function planImport(
   rows: ExcelRow[],
   mapping: Record<string, string | undefined>,
   methods: PaymentMethod[],
-  existingKeys: Set<string>,
+  existingTxs: (Transaction & { id: string })[],
 ): ImportPlan {
+  const existingKeys = new Set(existingTxs.flatMap((t) => (t.importKey ? [t.importKey] : [])))
+  const looseByKey = new Map<string, string[]>()
+  for (const t of existingTxs) {
+    if (t.importKey != null) continue
+    const key = `${t.date}|${t.methodId}|${t.amount}`
+    looseByKey.set(key, [...(looseByKey.get(key) ?? []), t.id])
+  }
+
   const seen = new Map<string, number>()
-  const plan: ImportPlan = { transactions: [], duplicates: 0 }
+  const plan: ImportPlan = { transactions: [], reconciled: [], duplicates: 0 }
   for (const r of rows) {
     const methodId = mapping[r.methodName]
     const method = methods.find((m) => m.id === methodId)
@@ -181,6 +201,13 @@ export function planImport(
     const computed = billingOf(r.date, method).paymentDate.slice(0, 7)
     const paymentMonth =
       method.kind === 'credit' && r.paymentMonth && r.paymentMonth !== computed ? r.paymentMonth : undefined
+
+    const looseKey = `${r.date}|${method.id}|${r.amount}`
+    const candidateId = looseByKey.get(looseKey)?.shift()
+    if (candidateId) {
+      plan.reconciled.push({ id: candidateId, importKey, ...(paymentMonth && { paymentMonth }) })
+      continue
+    }
     plan.transactions.push({
       date: r.date,
       amount: r.amount,

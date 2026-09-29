@@ -1,6 +1,7 @@
 import { useMemo, useState, type ChangeEvent } from 'react'
 import { repo } from '../repo'
-import { formatMD } from '../lib/dates'
+import { budgetImpactFor, type BudgetImpact } from '../lib/budget'
+import { formatMD, todayYMD } from '../lib/dates'
 import { guessMethod, parseSheet, planImport, type ParseResult } from '../lib/excelImport'
 import { yen, type AppData } from '../useData'
 
@@ -8,6 +9,8 @@ interface Props {
   data: AppData
   onClose: () => void
 }
+
+const diffLabel = (n: number) => `${n > 0 ? '+' : n < 0 ? '−' : '±'}${yen(Math.abs(n))}`
 
 /** 先頭から順に、見出し行が見つかった最初のシートを読む */
 async function readWorkbook(file: File): Promise<ParseResult> {
@@ -32,6 +35,7 @@ export function ImportSheet({ data, onClose }: Props) {
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   const [done, setDone] = useState<number | null>(null)
+  const [committedImpact, setCommittedImpact] = useState<{ before: BudgetImpact; after: BudgetImpact } | null>(null)
 
   const onFile = async (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -68,11 +72,34 @@ export function ImportSheet({ data, onClose }: Props) {
   const unmappedRows = parsed?.rows.filter((r) => mapping[r.methodName] == null).length ?? 0
   const dates = parsed?.rows.map((r) => r.date).sort() ?? []
 
+  const impact = useMemo(() => {
+    if (!plan?.transactions.length) return null
+    const today = todayYMD()
+    const args = [
+      today,
+      data.members,
+      data.incomes,
+      data.accounts,
+      data.methods,
+      data.fixedCosts,
+      data.transfers,
+      data.planned,
+      data.settings,
+    ] as const
+    return {
+      before: budgetImpactFor(data.transactions, ...args),
+      after: budgetImpactFor([...data.transactions, ...plan.transactions], ...args),
+    }
+  }, [plan, data])
+
+  const shownImpact = committedImpact ?? impact
+
   const run = async () => {
     if (!plan?.transactions.length) return
     setBusy(true)
     try {
       await repo.bulkAdd('transactions', plan.transactions)
+      setCommittedImpact(impact)
       setDone(plan.transactions.length)
     } finally {
       setBusy(false)
@@ -170,8 +197,33 @@ export function ImportSheet({ data, onClose }: Props) {
               )}
             </dl>
 
+            {shownImpact && (
+              <dl className="breakdown import-impact">
+                <div>
+                  <dt>今サイクルの残り予算</dt>
+                  <dd>
+                    {yen(shownImpact.before.remaining)} → {yen(shownImpact.after.remaining)}
+                    <span className="muted small"> （{diffLabel(shownImpact.after.remaining - shownImpact.before.remaining)}）</span>
+                  </dd>
+                </div>
+                {shownImpact.after.accounts.map(({ account, closing }) => {
+                  const before = shownImpact.before.accounts.find((a) => a.account.id === account.id)?.closing ?? closing
+                  if (closing === before) return null
+                  return (
+                    <div className="sub" key={account.id}>
+                      <dt>{account.name}の繰越見込み</dt>
+                      <dd>
+                        {yen(before)} → {yen(closing)}
+                        <span className="muted small"> （{diffLabel(closing - before)}）</span>
+                      </dd>
+                    </div>
+                  )
+                })}
+              </dl>
+            )}
+
             {done != null ? (
-              <p className="hint">{done}件を取り込みました。履歴画面で確認できます。</p>
+              <p className="hint">{done}件を取り込みました。上の予算・残高への影響が確定しました。履歴画面で明細を確認できます。</p>
             ) : (
               <div className="sheet-actions">
                 <button className="btn primary" disabled={busy || plan.transactions.length === 0} onClick={run}>

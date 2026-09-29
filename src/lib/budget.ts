@@ -1,6 +1,6 @@
 import { billingOf } from './billing'
 import { plannedStatuses, remainingOf, type PlannedStatus } from './planned'
-import { daysBetween, dayWithinCycle, shiftCycle, type Cycle } from './dates'
+import { cycleOf, daysBetween, dayWithinCycle, shiftCycle, type Cycle } from './dates'
 import { FIXED_CATEGORY, type Account, type PlannedExpense, type Transfer, type FixedCost, type Income, type Member, type PaymentMethod, type Settings, type Transaction, type YMD } from './types'
 
 export interface FixedStatus {
@@ -373,4 +373,45 @@ export function projectAccounts(
       closing: carries.reduce((s, c) => s + c.closing, 0),
     }
   })
+}
+
+export interface BudgetImpact {
+  /** 今サイクルの残り予算（使った日ベース） */
+  remaining: number
+  /** 残高を入力済みの口座ごとの、今サイクル終了時点の繰越見込み */
+  accounts: { account: Account; closing: number }[]
+}
+
+/**
+ * ある取引の集合（インポート前・後など）を渡したときの、今サイクルの残り予算と
+ * 口座繰越への影響をまとめて計算する。Home 画面の計算と同じ組み立て方をしている。
+ */
+export function budgetImpactFor(
+  txs: Transaction[],
+  today: YMD,
+  members: Member[],
+  incomeRecords: Income[],
+  accounts: Account[],
+  methods: PaymentMethod[],
+  fixedCosts: FixedCost[],
+  transfers: Transfer[],
+  planned: (PlannedExpense & { id: string })[],
+  settings: Settings,
+): BudgetImpact {
+  const cycle = cycleOf(today, settings.cycleStartDay)
+  const incomeCycle = budgetIncomeCycle(cycle, settings)
+  const s = summarize(cycle, today, members, incomeRecords, fixedCosts, txs, settings, incomeCycle, planned)
+  const cycles = [0, 1, 2].map((n) => shiftCycle(cycle, n, settings.cycleStartDay))
+  const flows = outflows(today, methods, txs, fixedCosts, cycles, planned)
+  const oldestBalance = accounts.flatMap((a) => (a.balance != null && a.balanceDate ? [a.balanceDate] : [])).sort()[0]
+  const leadCycles: Cycle[] = []
+  if (oldestBalance && oldestBalance < cycle.start) {
+    for (let n = -1; n >= -6 && shiftCycle(cycle, n + 1, settings.cycleStartDay).start > oldestBalance; n--) {
+      leadCycles.unshift(shiftCycle(cycle, n, settings.cycleStartDay))
+    }
+  }
+  const toCashflow = (c: Cycle) => cashflowFor(c, members, incomeRecords, flows, settings)
+  const carries = projectAccounts([...leadCycles.map(toCashflow), ...cycles.map(toCashflow)], accounts, settings, transfers)
+  const carry = carries?.[leadCycles.length]
+  return { remaining: s.remaining, accounts: carry?.accounts.map((c) => ({ account: c.account, closing: c.closing })) ?? [] }
 }

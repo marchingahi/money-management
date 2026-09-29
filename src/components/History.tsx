@@ -13,8 +13,10 @@ interface Props {
 export function History({ data, onEdit }: Props) {
   const { settings, methods, transactions } = data
   const [offset, setOffset] = useState(0)
+  const [methodFilter, setMethodFilter] = useState<string | undefined>(undefined)
   const cycle = shiftCycle(cycleOf(todayYMD(), settings.cycleStartDay), offset, settings.cycleStartDay)
-  const txs = transactions.filter((t) => inCycle(t.date, cycle))
+  const cycleTxs = transactions.filter((t) => inCycle(t.date, cycle))
+  const txs = methodFilter ? cycleTxs.filter((t) => t.methodId === methodFilter) : cycleTxs
   const total = txs.reduce((s, t) => s + t.amount, 0)
 
   const byCategory = new Map<string, number>()
@@ -26,19 +28,38 @@ export function History({ data, onEdit }: Props) {
 
   return (
     <div className="history">
-      <div className="cycle-nav card">
-        <button className="icon-btn" onClick={() => setOffset(offset - 1)} aria-label="前のサイクル">
-          ‹
-        </button>
-        <div>
-          <strong>
-            {formatMD(cycle.start)} 〜 {formatMD(cycle.end)}
-          </strong>
-          <p className="muted small">合計 {yen(total)}（固定費含む）</p>
+      <div className="card">
+        <div className="cycle-nav">
+          <button className="icon-btn" onClick={() => setOffset(offset - 1)} aria-label="前のサイクル">
+            ‹
+          </button>
+          <div>
+            <strong>
+              {formatMD(cycle.start)} 〜 {formatMD(cycle.end)}
+            </strong>
+            <p className="muted small">
+              {methodFilter ? `${methods.find((m) => m.id === methodFilter)?.name ?? ''}の合計` : '合計'} {yen(total)}
+              （固定費含む）
+            </p>
+          </div>
+          <button className="icon-btn" onClick={() => setOffset(offset + 1)} aria-label="次のサイクル">
+            ›
+          </button>
         </div>
-        <button className="icon-btn" onClick={() => setOffset(offset + 1)} aria-label="次のサイクル">
-          ›
-        </button>
+        <div className="chips method-filter">
+          <button className={`chip ${methodFilter == null ? 'on' : ''}`} onClick={() => setMethodFilter(undefined)}>
+            すべて
+          </button>
+          {methods.map((m) => (
+            <button
+              key={m.id}
+              className={`chip ${methodFilter === m.id ? 'on' : ''}`}
+              onClick={() => setMethodFilter(m.id)}
+            >
+              {m.name}
+            </button>
+          ))}
+        </div>
       </div>
 
       {categories.length > 0 && (

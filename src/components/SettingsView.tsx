@@ -1,5 +1,6 @@
-import { useState, type ChangeEvent } from 'react'
+import { Fragment, useState, type ChangeEvent } from 'react'
 import { backupToDataSet, exportBackup } from '../db'
+import { describeSchedule } from '../lib/cardPresets'
 import { newMember } from '../lib/seed'
 import { repo } from '../repo'
 import { expectedTakeHome, NO_ACCOUNT } from '../lib/budget'
@@ -98,6 +99,7 @@ export function SettingsView({ data }: { data: AppData }) {
   const [message, setMessage] = useState('')
   const [importing, setImporting] = useState(false)
   const [addingMethod, setAddingMethod] = useState(false)
+  const [expandedMethod, setExpandedMethod] = useState<string | null>(null)
 
   const deleteMethod = async (id: string) => {
     const used =
@@ -328,83 +330,110 @@ export function SettingsView({ data }: { data: AppData }) {
 
       <section className="card">
         <h2>支払い方法</h2>
-        <p className="muted small">締め日・支払日の「末日」は月の最終日として扱います。支払日が休業日なら翌営業日で計算します。</p>
-        {methods.map((m) => (
-          <div key={m.id} className="item">
-            <div className="form-grid">
-              <label>
-                名前
-                <TextInput value={m.name} onCommit={(v) => repo.update('methods', m.id, { name: v })} />
-              </label>
-              <label>
-                種類
-                <select
-                  value={m.kind}
-                  onChange={(e) => repo.update('methods', m.id, { kind: e.target.value as MethodKind })}
-                >
-                  {Object.entries(KIND_LABEL).map(([k, label]) => (
-                    <option key={k} value={k}>
-                      {label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                名義
-                <select
-                  value={m.ownerId ?? ''}
-                  onChange={(e) =>
-                    repo.update('methods', m.id, { ownerId: e.target.value || undefined })
-                  }
-                >
-                  <option value="">共通</option>
-                  {members.map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              {accounts.length > 0 && (
-                <label>
-                  {m.kind === 'credit' ? '引落口座' : '支払う口座'}
-                  <AccountSelect
-                    accounts={accounts}
-                    value={m.accountId}
-                    allowNone={m.kind !== 'credit'}
-                    onChange={(v) => repo.update('methods', m.id, { accountId: v })}
-                  />
-                </label>
-              )}
-              {m.kind === 'credit' && (
-                <>
-                  <label>
-                    締め日
-                    <DaySelect value={m.closingDay} onChange={(v) => repo.update('methods', m.id, { closingDay: v })} />
-                  </label>
-                  <label>
-                    支払月
-                    <select
-                      value={m.monthOffset}
-                      onChange={(e) => repo.update('methods', m.id, { monthOffset: Number(e.target.value) })}
-                    >
-                      <option value={0}>当月</option>
-                      <option value={1}>翌月</option>
-                      <option value={2}>翌々月</option>
-                    </select>
-                  </label>
-                  <label>
-                    支払日
-                    <DaySelect value={m.paymentDay} onChange={(v) => repo.update('methods', m.id, { paymentDay: v })} />
-                  </label>
-                </>
-              )}
-            </div>
-            <button className="link-btn danger" onClick={() => deleteMethod(m.id)}>
-              削除
-            </button>
-          </div>
-        ))}
+        <p className="muted small">締め日・支払日の「末日」は月の最終日として扱います。支払日が休業日なら翌営業日で計算します。タップすると詳細を編集できます。</p>
+        <ul className="list">
+          {methods.map((m) => {
+            const expanded = expandedMethod === m.id
+            const owner = members.find((p) => p.id === m.ownerId)?.name
+            return (
+              <Fragment key={m.id}>
+                <li className="clickable" onClick={() => setExpandedMethod(expanded ? null : m.id!)}>
+                  <span className="grow">
+                    <span>{m.name}</span>
+                    <span className="muted small">
+                      {KIND_LABEL[m.kind]}
+                      {m.kind === 'credit' && `・${describeSchedule(m)}`}
+                      {owner && `・${owner}`}
+                    </span>
+                  </span>
+                  <span className="disclosure">{expanded ? '閉じる ︿' : '編集 ﹀'}</span>
+                </li>
+                {expanded && (
+                  <li className="method-edit">
+                    <div className="form-grid">
+                      <label>
+                        名前
+                        <TextInput value={m.name} onCommit={(v) => repo.update('methods', m.id, { name: v })} />
+                      </label>
+                      <label>
+                        種類
+                        <select
+                          value={m.kind}
+                          onChange={(e) => repo.update('methods', m.id, { kind: e.target.value as MethodKind })}
+                        >
+                          {Object.entries(KIND_LABEL).map(([k, label]) => (
+                            <option key={k} value={k}>
+                              {label}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <label>
+                        名義
+                        <select
+                          value={m.ownerId ?? ''}
+                          onChange={(e) =>
+                            repo.update('methods', m.id, { ownerId: e.target.value || undefined })
+                          }
+                        >
+                          <option value="">共通</option>
+                          {members.map((p) => (
+                            <option key={p.id} value={p.id}>
+                              {p.name}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      {accounts.length > 0 && (
+                        <label>
+                          {m.kind === 'credit' ? '引落口座' : '支払う口座'}
+                          <AccountSelect
+                            accounts={accounts}
+                            value={m.accountId}
+                            allowNone={m.kind !== 'credit'}
+                            onChange={(v) => repo.update('methods', m.id, { accountId: v })}
+                          />
+                        </label>
+                      )}
+                      {m.kind === 'credit' && (
+                        <>
+                          <label>
+                            締め日
+                            <DaySelect
+                              value={m.closingDay}
+                              onChange={(v) => repo.update('methods', m.id, { closingDay: v })}
+                            />
+                          </label>
+                          <label>
+                            支払月
+                            <select
+                              value={m.monthOffset}
+                              onChange={(e) => repo.update('methods', m.id, { monthOffset: Number(e.target.value) })}
+                            >
+                              <option value={0}>当月</option>
+                              <option value={1}>翌月</option>
+                              <option value={2}>翌々月</option>
+                            </select>
+                          </label>
+                          <label>
+                            支払日
+                            <DaySelect
+                              value={m.paymentDay}
+                              onChange={(v) => repo.update('methods', m.id, { paymentDay: v })}
+                            />
+                          </label>
+                        </>
+                      )}
+                    </div>
+                    <button className="link-btn danger" onClick={() => deleteMethod(m.id)}>
+                      削除
+                    </button>
+                  </li>
+                )}
+              </Fragment>
+            )
+          })}
+        </ul>
         <button className="btn" onClick={() => setAddingMethod(true)}>
           ＋ 支払い方法を追加（主要カードは一覧から）
         </button>

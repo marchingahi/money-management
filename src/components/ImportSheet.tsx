@@ -2,6 +2,9 @@ import { useMemo, useState, type ChangeEvent } from 'react'
 import { repo } from '../repo'
 import { budgetImpactFor, type BudgetImpact } from '../lib/budget'
 import { formatMD, todayYMD } from '../lib/dates'
+import { FIXED_CATEGORY, type Transaction } from '../lib/types'
+import { detectFixedCandidates } from '../lib/fixedDetect'
+import { FixedSuggest } from './FixedSuggest'
 import { guessMethod, parseSheet, planImport, type ParseResult } from '../lib/excelImport'
 import { yen, type AppData } from '../useData'
 
@@ -62,6 +65,18 @@ export function ImportSheet({ data, onClose }: Props) {
     return planImport(parsed.rows, mapping, data.methods, data.transactions)
   }, [parsed, mapping, data.methods, data.transactions])
 
+  // 前月・前々月と同額の支払いは、固定費にするか確認する
+  const candidates = useMemo(() => {
+    if (!plan?.transactions.length) return []
+    return detectFixedCandidates(
+      [...data.transactions, ...plan.transactions],
+      new Set<Transaction>(plan.transactions),
+      data.settings.fixedIgnored,
+    )
+  }, [plan, data.transactions, data.settings.fixedIgnored])
+  const [unchecked, setUnchecked] = useState<Set<string>>(new Set())
+  const selected = useMemo(() => new Set(candidates.filter((c) => !unchecked.has(c.key)).map((c) => c.key)), [candidates, unchecked])
+
   const methodCounts = useMemo(() => {
     const counts = new Map<string, number>()
     for (const r of parsed?.rows ?? []) counts.set(r.methodName, (counts.get(r.methodName) ?? 0) + 1)
@@ -73,6 +88,8 @@ export function ImportSheet({ data, onClose }: Props) {
 
   const impact = useMemo(() => {
     if (!plan?.transactions.length) return null
+    const toFixed = new Set(candidates.filter((c) => selected.has(c.key)).flatMap((c) => c.txs))
+    const adjusted = plan.transactions.map((t) => (toFixed.has(t) ? { ...t, category: FIXED_CATEGORY } : t))
     const today = todayYMD()
     const args = [
       today,
@@ -87,9 +104,9 @@ export function ImportSheet({ data, onClose }: Props) {
     ] as const
     return {
       before: budgetImpactFor(data.transactions, ...args),
-      after: budgetImpactFor([...data.transactions, ...plan.transactions], ...args),
+      after: budgetImpactFor([...data.transactions, ...adjusted], ...args),
     }
-  }, [plan, data])
+  }, [plan, data, candidates, selected])
 
   const shownImpact = committedImpact ?? impact
 
@@ -97,7 +114,18 @@ export function ImportSheet({ data, onClose }: Props) {
     if (!plan || (plan.transactions.length === 0 && plan.reconciled.length === 0)) return
     setBusy(true)
     try {
-      if (plan.transactions.length) await repo.bulkAdd('transactions', plan.transactions)
+      const chosen = candidates.filter((c) => selected.has(c.key))
+      const toFixed = new Set(chosen.flatMap((c) => c.txs))
+      const newTxs = plan.transactions.map((t) => (toFixed.has(t) ? { ...t, category: FIXED_CATEGORY } : t))
+      if (newTxs.length) await repo.bulkAdd('transactions', newTxs)
+      // 取り込み済みの過去分も同じ並びなら一緒に固定費にする
+      for (const t of toFixed) {
+        if (t.id) await repo.update('transactions', t.id, { category: FIXED_CATEGORY })
+      }
+      const skipped = candidates.filter((c) => !selected.has(c.key)).map((c) => c.key)
+      if (skipped.length) {
+        await repo.update('settings', 'main', { fixedIgnored: [...new Set([...(data.settings.fixedIgnored ?? []), ...skipped])] })
+      }
       for (const u of plan.reconciled) {
         const existing = data.transactions.find((t) => t.id === u.id)
         if (!existing) continue
@@ -206,6 +234,14 @@ export function ImportSheet({ data, onClose }: Props) {
                 </div>
               )}
             </dl>
+
+            {done == null && (
+              <FixedSuggest
+                candidates={candidates}
+                selected={selected}
+                onChange={(next) => setUnchecked(new Set(candidates.filter((c) => !next.has(c.key)).map((c) => c.key)))}
+              />
+            )}
 
             {shownImpact && (
               <dl className="breakdown import-impact">

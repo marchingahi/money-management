@@ -9,6 +9,7 @@ import { KIND_LABEL, type Account, type MethodKind, type PayType } from '../lib/
 import { dayLabel, yen, type AppData } from '../useData'
 import { CardPresetSheet } from './CardPresetSheet'
 import { ImportSheet } from './ImportSheet'
+import { FixedCheckSheet } from './FixedCheckSheet'
 import { SyncSection } from './SyncSection'
 
 /*
@@ -98,6 +99,7 @@ export function SettingsView({ data }: { data: AppData }) {
   const { settings, members, accounts, methods, fixedCosts, transactions } = data
   const [message, setMessage] = useState('')
   const [importing, setImporting] = useState(false)
+  const [checkingFixed, setCheckingFixed] = useState(false)
   const [addingMethod, setAddingMethod] = useState(false)
   const [expandedMethod, setExpandedMethod] = useState<string | null>(null)
 
@@ -491,6 +493,9 @@ export function SettingsView({ data }: { data: AppData }) {
         >
           ＋ 固定費を追加
         </button>
+        <button className="btn" onClick={() => setCheckingFixed(true)}>
+          毎月同額の支払いを確認
+        </button>
       </section>
 
       <section className="card">
@@ -512,6 +517,7 @@ export function SettingsView({ data }: { data: AppData }) {
         </div>
         {message && <p className="hint">{message}</p>}
       </section>
+      {checkingFixed && <FixedCheckSheet data={data} onClose={() => setCheckingFixed(false)} />}
       {importing && <ImportSheet data={data} onClose={() => setImporting(false)} />}
     </div>
   )

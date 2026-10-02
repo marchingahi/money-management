@@ -137,6 +137,8 @@ export interface Settings {
   budgetIncome?: 'next' | 'current'
   /** 先取り貯金を出す口座。未設定なら最初の口座 */
   savingsAccountId?: string
+  /** 「固定費にしない」と選んだ支払い（店名|金額）。固定費の候補に出さない */
+  fixedIgnored?: string[]
   /** 旧形式の口座残高（口座が 1 つだった頃）。移行後は使わない */
   balance?: number
   balanceDate?: YMD

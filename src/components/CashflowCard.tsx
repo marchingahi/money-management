@@ -6,6 +6,7 @@ import {
   projectAccounts,
   type AccountEvent,
   type IncomeStatus,
+  outflowKey,
   type Outflow,
 } from '../lib/budget'
 import { addDays } from 'date-fns'
@@ -88,7 +89,7 @@ export function CashflowCard({ data, cycles, leadCycles, flows }: Props) {
   for (const o of cf.items) {
     if (o.method.kind === 'credit') continue
     const d = direct.get(o.method.id!) ?? { method: o.method, pending: 0, done: 0, estimate: false }
-    if (settled(`out:${o.method.id}@${o.paymentDate}`)) d.done += o.amount
+    if (settled(outflowKey(o))) d.done += o.amount
     else d.pending += o.amount
     d.estimate ||= o.includesEstimate
     direct.set(o.method.id!, d)
@@ -207,7 +208,7 @@ export function CashflowCard({ data, cycles, leadCycles, flows }: Props) {
           )
         })}
         {cf.cards.map((o) => {
-          const key = `out:${o.method.id}@${o.paymentDate}`
+          const key = outflowKey(o)
           return (
             <li key={key} className={settled(key) ? 'done' : ''}>
               <span className="date">{formatMD(o.paymentDate)}</span>

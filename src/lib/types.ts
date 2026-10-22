@@ -102,6 +102,11 @@ export interface FixedCost {
   /** 毎月の利用（計上）日 */
   day: number
   methodId: string
+  /**
+   * 引き落とされる口座。未設定なら支払い方法の口座に従う
+   * （支払い方法の口座が未設定なら最初の口座）
+   */
+  accountId?: string
 }
 
 export interface Transaction {

@@ -120,7 +120,13 @@ export interface Outflow {
   confirmed: boolean
   /** 未入力の固定費見込みを含むか */
   includesEstimate: boolean
+  /** 固定費で口座を指定している場合の口座（未設定なら支払い方法の口座） */
+  accountId?: string
 }
+
+/** 出金（支払い方法 × 出金日 × 口座の指定）を区別するキー。残高入力日の反映済み指定にも使う */
+export const outflowKey = (o: Outflow) =>
+  `out:${o.method.id}@${o.paymentDate}${o.accountId ? `#${o.accountId}` : ''}`
 export type UpcomingBilling = Outflow
 
 /**
@@ -138,11 +144,11 @@ export function outflows(
   const byId = new Map(methods.map((m) => [m.id!, m]))
   const groups = new Map<string, Outflow>()
 
-  const add = (date: YMD, amount: number, methodId: string, estimate: boolean, paymentMonth?: string) => {
+  const add = (date: YMD, amount: number, methodId: string, estimate: boolean, paymentMonth?: string, accountId?: string) => {
     const method = byId.get(methodId)
     if (!method) return
     const { closingDate, paymentDate } = billingOf(date, method, paymentMonth)
-    const key = `${methodId}|${paymentDate}`
+    const key = `${methodId}|${paymentDate}|${accountId ?? ''}`
     const g = groups.get(key) ?? {
       method,
       paymentDate,
@@ -150,13 +156,15 @@ export function outflows(
       amount: 0,
       confirmed: method.kind !== 'credit' || closingDate < today,
       includesEstimate: false,
+      ...(accountId && { accountId }),
     }
     g.amount += amount
     g.includesEstimate ||= estimate
     groups.set(key, g)
   }
 
-  for (const t of txs) add(t.date, t.amount, t.methodId, false, t.paymentMonth)
+  const fixedAccount = new Map(fixedCosts.map((f) => [f.id, f.accountId]))
+  for (const t of txs) add(t.date, t.amount, t.methodId, false, t.paymentMonth, t.fixedCostId ? fixedAccount.get(t.fixedCostId) : undefined)
   // 払い終わっていない予定の出費は、残りの額が予定日に出ていく見込みとして含める
   // （予定日を過ぎているなら今日払う見込みとして）
   const paidByPlan = new Map<string, number>()
@@ -167,7 +175,7 @@ export function outflows(
   }
   for (const cycle of cyclesForEstimates) {
     for (const f of fixedStatuses(fixedCosts, txs, cycle)) {
-      if (f.actual == null) add(f.date, f.cost.amount, f.cost.methodId, true)
+      if (f.actual == null) add(f.date, f.cost.amount, f.cost.methodId, true, undefined, f.cost.accountId)
     }
   }
 
@@ -291,12 +299,12 @@ export function cycleEvents(
   for (const o of cf.items) {
     push(
       {
-        key: `out:${o.method.id}@${o.paymentDate}`,
+        key: outflowKey(o),
         date: o.paymentDate,
         amount: -o.amount,
         label: o.method.kind === 'credit' ? `${o.method.name} 引落` : `${o.method.name}での支払い`,
       },
-      o.method.accountId,
+      o.accountId ?? o.method.accountId,
     )
   }
   push(

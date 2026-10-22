@@ -103,6 +103,10 @@ export function SettingsView({ data }: { data: AppData }) {
   const [addingMethod, setAddingMethod] = useState(false)
   const [expandedMethod, setExpandedMethod] = useState<string | null>(null)
 
+  /** 口座の指定を、設定画面に表示する口座名にする（未指定は最初の口座） */
+  const accountName = (explicit?: string) =>
+    explicit === NO_ACCOUNT ? '口座を使わない' : (accounts.find((a) => a.id === explicit) ?? accounts[0])?.name ?? '未指定'
+
   const deleteMethod = async (id: string) => {
     const used =
       transactions.some((t) => t.methodId === id) || fixedCosts.some((f) => f.methodId === id)
@@ -480,6 +484,22 @@ export function SettingsView({ data }: { data: AppData }) {
                   ))}
                 </select>
               </label>
+              {accounts.length > 0 && (
+                <label>
+                  引落口座
+                  <select
+                    value={f.accountId ?? ''}
+                    onChange={(e) => repo.update('fixedCosts', f.id, { accountId: e.target.value || undefined })}
+                  >
+                    <option value="">支払い方法に従う（{accountName(methods.find((m) => m.id === f.methodId)?.accountId)}）</option>
+                    {accounts.map((a) => (
+                      <option key={a.id} value={a.id}>
+                        {a.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
             </div>
             <button className="link-btn danger" onClick={() => deleteFixed(f.id)}>
               削除

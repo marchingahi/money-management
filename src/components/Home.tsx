@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { budgetIncomeCycle, outflows, summarize, type IncomeStatus } from '../lib/budget'
+import { budgetIncomeCycle, inCycle, outflows, summarize, type IncomeStatus } from '../lib/budget'
 import { cycleOf, formatMD, fromYMD, shiftCycle, todayYMD } from '../lib/dates'
 import { FIXED_CATEGORY, type Transaction } from '../lib/types'
 import { dayLabel, yen, type AppData } from '../useData'
@@ -155,8 +155,13 @@ export function Home({ data, onEntry }: Props) {
                 <span className="amount">{yen(t.amount)}</span>
               </li>
             ))}
-            {s.fixed.map((f) => (
-              <li key={f.cost.id}>
+            {s.fixed.map((f) => {
+              // 実額が入力済みなら、その支出をタップして金額などを直せる（複数あれば最新の 1 件）
+              const entered = transactions
+                .filter((t) => t.fixedCostId === f.cost.id && inCycle(t.date, cycle))
+                .sort((a, b) => b.date.localeCompare(a.date))[0]
+              return (
+              <li key={f.cost.id} className={entered ? 'clickable' : undefined} onClick={entered ? () => onEntry(entered) : undefined}>
                 <span className="date">{formatMD(f.date)}</span>
                 <span className="grow">
                   {f.cost.name}
@@ -182,7 +187,8 @@ export function Home({ data, onEntry }: Props) {
                   </button>
                 )}
               </li>
-            ))}
+              )
+            })}
           </ul>
         </section>
       )}

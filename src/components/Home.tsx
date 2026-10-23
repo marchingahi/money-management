@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { budgetIncomeCycle, inCycle, outflows, summarize, type IncomeStatus } from '../lib/budget'
-import { cycleOf, formatMD, fromYMD, shiftCycle, todayYMD } from '../lib/dates'
+import { cycleOf, cycleRule, formatMD, fromYMD, shiftCycle, todayYMD } from '../lib/dates'
 import { FIXED_CATEGORY, type Transaction } from '../lib/types'
 import { dayLabel, yen, type AppData } from '../useData'
 import { CashflowCard } from './CashflowCard'
@@ -16,10 +16,10 @@ export function Home({ data, onEntry }: Props) {
   const { settings, members, incomes, methods, fixedCosts, transactions } = data
   const [editingIncome, setEditingIncome] = useState<IncomeStatus | null>(null)
   const today = todayYMD()
-  const cycle = cycleOf(today, settings.cycleStartDay)
+  const cycle = cycleOf(today, cycleRule(settings))
   const incomeCycle = budgetIncomeCycle(cycle, settings)
   const s = summarize(cycle, today, members, incomes, fixedCosts, transactions, settings, incomeCycle, data.planned)
-  const cycles = [0, 1, 2].map((n) => shiftCycle(cycle, n, settings.cycleStartDay))
+  const cycles = [0, 1, 2].map((n) => shiftCycle(cycle, n, cycleRule(settings)))
   const flows = outflows(today, methods, transactions, fixedCosts, cycles, data.planned)
   // 口座残高の入力日が今のサイクルより前なら、そこから今のサイクルの手前まで（最大6回分）も繰越の計算に使う
   const oldestBalance = data.accounts
@@ -27,8 +27,8 @@ export function Home({ data, onEntry }: Props) {
     .sort()[0]
   const leadCycles: typeof cycles = []
   if (oldestBalance && oldestBalance < cycle.start) {
-    for (let n = -1; n >= -6 && shiftCycle(cycle, n + 1, settings.cycleStartDay).start > oldestBalance; n--) {
-      leadCycles.unshift(shiftCycle(cycle, n, settings.cycleStartDay))
+    for (let n = -1; n >= -6 && shiftCycle(cycle, n + 1, cycleRule(settings)).start > oldestBalance; n--) {
+      leadCycles.unshift(shiftCycle(cycle, n, cycleRule(settings)))
     }
   }
   const billings = flows.filter((o) => o.method.kind === 'credit' && o.paymentDate >= today)

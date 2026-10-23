@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { formatMD, todayYMD, type Cycle } from '../lib/dates'
+import { cycleRule, formatMD, todayYMD, type Cycle } from '../lib/dates'
 import type { PlannedStatus } from '../lib/planned'
 import type { PlannedExpense, Transaction } from '../lib/types'
 import { repo } from '../repo'
@@ -113,7 +113,7 @@ export function PlannedCard({ data, cycle, statuses, total, onPay }: Props) {
       {editing && (
         <PlannedForm
           methods={data.methods}
-          startDay={data.settings.cycleStartDay}
+          startDay={cycleRule(data.settings)}
           initial={editing}
           onClose={() => setEditing(null)}
         />

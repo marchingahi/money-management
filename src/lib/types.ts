@@ -133,6 +133,8 @@ export interface Settings {
   id: 'main'
   /** 家計サイクルの開始日（通常は給料日） */
   cycleStartDay: number
+  /** 給料日がずれた月だけ開始日を変える（サイクルが始まる月 'yyyy-MM' → 開始日）。例: { '2026-10': 23 } */
+  cycleStartOverrides?: Record<string, number>
   /** 先取り貯金額 */
   savings: number
   /**

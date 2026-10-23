@@ -4,7 +4,7 @@ import { describeSchedule } from '../lib/cardPresets'
 import { newMember, seedDataSet } from '../lib/seed'
 import { repo } from '../repo'
 import { expectedTakeHome, NO_ACCOUNT } from '../lib/budget'
-import { formatMD, todayYMD } from '../lib/dates'
+import { cycleOf, cycleRule, dayInMonth, formatMD, todayYMD, toYMD } from '../lib/dates'
 import { KIND_LABEL, type Account, type MethodKind, type PayType } from '../lib/types'
 import { dayLabel, yen, type AppData } from '../useData'
 import { CardPresetSheet } from './CardPresetSheet'
@@ -67,6 +67,74 @@ function DaySelect({ value, onChange }: { value: number; onChange: (v: number) =
         </option>
       ))}
     </select>
+  )
+}
+
+/** 給料日がずれた月だけ、サイクルの開始日を個別に変える */
+function CycleOverrides({ settings }: { settings: AppData['settings'] }) {
+  const overrides = settings.cycleStartOverrides ?? {}
+  const save = (next: Record<string, number>) =>
+    repo.update('settings', 'main', { cycleStartOverrides: Object.keys(next).length ? next : undefined })
+  const entries = Object.entries(overrides).sort(([a], [b]) => a.localeCompare(b))
+  const range = (ym: string, day: number) => {
+    // その月の末日は必ずその月に始まるサイクルの中にある
+    const [y, m] = ym.split('-').map(Number)
+    const c = cycleOf(toYMD(dayInMonth(y, m - 1, 31)), cycleRule({ ...settings, cycleStartOverrides: { ...overrides, [ym]: day } }))
+    return `${formatMD(c.start)}〜${formatMD(c.end)}`
+  }
+  return (
+    <div className="field">
+      <span className="field-label">給料日がずれた月のサイクル開始日</span>
+      <p className="muted small">
+        給料が振り込まれる日が通常と違う月だけ、その月に始まるサイクルの開始日を変えられます。例: 10月が23日なら「2026年10月」を「23日」にすると、10/23〜11/24のサイクルになります。
+      </p>
+      {entries.map(([ym, day]) => (
+        <div key={ym} className="item">
+          <div className="form-grid">
+            <label>
+              サイクルが始まる月
+              <input
+                type="month"
+                value={ym}
+                onChange={(e) => {
+                  const v = e.target.value
+                  if (!v || v === ym || v in overrides) return
+                  const { [ym]: _drop, ...rest } = overrides
+                  save({ ...rest, [v]: day })
+                }}
+              />
+            </label>
+            <label>
+              開始日
+              <DaySelect value={day} onChange={(v) => save({ ...overrides, [ym]: v })} />
+            </label>
+          </div>
+          <span className="muted small">{range(ym, day)}</span>
+          <button
+            className="link-btn danger"
+            onClick={() => {
+              const { [ym]: _drop, ...rest } = overrides
+              save(rest)
+            }}
+          >
+            削除
+          </button>
+        </div>
+      ))}
+      <button
+        className="btn"
+        onClick={() => {
+          let ym = todayYMD().slice(0, 7)
+          while (ym in overrides) {
+            const [y, m] = ym.split('-').map(Number)
+            ym = m === 12 ? `${y + 1}-01` : `${y}-${String(m + 1).padStart(2, '0')}`
+          }
+          save({ ...overrides, [ym]: settings.cycleStartDay })
+        }}
+      >
+        ＋ 月を追加
+      </button>
+    </div>
   )
 }
 
@@ -207,6 +275,7 @@ export function SettingsView({ data }: { data: AppData }) {
             </label>
           )}
         </div>
+        <CycleOverrides settings={settings} />
       </section>
 
       <section className="card">

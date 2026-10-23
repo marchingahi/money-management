@@ -1,4 +1,3 @@
-import { billingOf } from './billing'
 import { FIXED_CATEGORY, type PaymentMethod, type Transaction, type YMD } from './types'
 
 /**
@@ -66,8 +65,19 @@ function toAmount(v: unknown): number | undefined {
   return undefined
 }
 
-/** 月だけの支払月を、利用日以降で最初に来るその月として 'yyyy-MM' にする */
+/**
+ * 支払月を 'yyyy-MM' にする。「6」「6月」のように月だけの場合は、利用日以降で最初に来るその月とする。
+ * 「2026/6」「2026年6月」「2026-06-26」のような年つきや、日付の値（Excel のシリアル値・Date）ならその年月をそのまま使う。
+ */
 export function toPaymentMonth(v: unknown, date: YMD): string | undefined {
+  if (typeof v === 'string') {
+    const m = normalize(v).match(/^(\d{4})\s*[/.年-]\s*(\d{1,2})(?:\s*月)?(?:\s*[/.-]\s*\d{1,2}\s*日?)?$/)
+    if (m && Number(m[2]) >= 1 && Number(m[2]) <= 12) return `${m[1]}-${pad(Number(m[2]))}`
+  }
+  if (v instanceof Date || (typeof v === 'number' && v > 31)) {
+    const d = toDate(v)
+    return d ? d.slice(0, 7) : undefined
+  }
   const month = typeof v === 'number' ? v : typeof v === 'string' ? Number(normalize(v).replace(/月$/, '')) : NaN
   if (!Number.isInteger(month) || month < 1 || month > 12) return undefined
   const y = Number(date.slice(0, 4))
@@ -160,6 +170,8 @@ export interface ImportPlan {
   reconciled: ReconciledUpdate[]
   /** 取り込み済みのためスキップする件数 */
   duplicates: number
+  /** 取り込み済みの支出のうち、ファイルの支払月と違っている（または未保存の）ため更新する分 */
+  paymentMonthUpdates: { id: string; paymentMonth: string }[]
 }
 
 /**
@@ -184,7 +196,8 @@ export function planImport(
   }
 
   const seen = new Map<string, number>()
-  const plan: ImportPlan = { transactions: [], reconciled: [], duplicates: 0 }
+  const byKey = new Map(existingTxs.flatMap((t) => (t.importKey ? [[t.importKey, t] as const] : [])))
+  const plan: ImportPlan = { transactions: [], reconciled: [], duplicates: 0, paymentMonthUpdates: [] }
   for (const r of rows) {
     const methodId = mapping[r.methodName]
     const method = methods.find((m) => m.id === methodId)
@@ -193,14 +206,17 @@ export function planImport(
     const n = (seen.get(base) ?? 0) + 1
     seen.set(base, n)
     const importKey = `${base}#${n}`
+    // クレジットは、ファイルの支払月があれば計算結果と一致していても必ず保存する
+    // （締め日・支払日の計算とずれる請求があっても、ファイルの支払月どおりに引き落とされる扱いにする）
+    const paymentMonth = method.kind === 'credit' ? r.paymentMonth : undefined
     if (existingKeys.has(importKey)) {
       plan.duplicates++
+      const existing = byKey.get(importKey)
+      if (existing && paymentMonth && existing.paymentMonth !== paymentMonth) {
+        plan.paymentMonthUpdates.push({ id: existing.id, paymentMonth })
+      }
       continue
     }
-    // 計算どおりの引落月なら保存しない（利用日やカードを後で変えたときに計算に戻るように）
-    const computed = billingOf(r.date, method).paymentDate.slice(0, 7)
-    const paymentMonth =
-      method.kind === 'credit' && r.paymentMonth && r.paymentMonth !== computed ? r.paymentMonth : undefined
 
     const looseKey = `${r.date}|${method.id}|${r.amount}`
     const candidateId = looseByKey.get(looseKey)?.shift()

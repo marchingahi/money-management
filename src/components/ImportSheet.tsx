@@ -87,9 +87,10 @@ export function ImportSheet({ data, onClose }: Props) {
   const dates = parsed?.rows.map((r) => r.date).sort() ?? []
 
   const impact = useMemo(() => {
-    if (!plan?.transactions.length) return null
+    if (!plan?.transactions.length && !plan?.paymentMonthUpdates.length) return null
     const toFixed = new Set(candidates.filter((c) => selected.has(c.key)).flatMap((c) => c.txs))
-    const adjusted = plan.transactions.map((t) => (toFixed.has(t) ? { ...t, category: FIXED_CATEGORY } : t))
+    const adjusted = (plan?.transactions ?? []).map((t) => (toFixed.has(t) ? { ...t, category: FIXED_CATEGORY } : t))
+    const months = new Map((plan?.paymentMonthUpdates ?? []).map((u) => [u.id, u.paymentMonth]))
     const today = todayYMD()
     const args = [
       today,
@@ -104,14 +105,14 @@ export function ImportSheet({ data, onClose }: Props) {
     ] as const
     return {
       before: budgetImpactFor(data.transactions, ...args),
-      after: budgetImpactFor([...data.transactions, ...adjusted], ...args),
+      after: budgetImpactFor([...data.transactions.map((t) => (months.has(t.id) ? { ...t, paymentMonth: months.get(t.id) } : t)), ...adjusted], ...args),
     }
   }, [plan, data, candidates, selected])
 
   const shownImpact = committedImpact ?? impact
 
   const run = async () => {
-    if (!plan || (plan.transactions.length === 0 && plan.reconciled.length === 0)) return
+    if (!plan || (plan.transactions.length === 0 && plan.reconciled.length === 0 && plan.paymentMonthUpdates.length === 0)) return
     setBusy(true)
     try {
       const chosen = candidates.filter((c) => selected.has(c.key))
@@ -131,8 +132,11 @@ export function ImportSheet({ data, onClose }: Props) {
         if (!existing) continue
         await repo.put('transactions', { ...existing, importKey: u.importKey, ...(u.paymentMonth && { paymentMonth: u.paymentMonth }) })
       }
+      for (const u of plan.paymentMonthUpdates) {
+        await repo.update('transactions', u.id, { paymentMonth: u.paymentMonth })
+      }
       setCommittedImpact(impact)
-      setDone(plan.transactions.length + plan.reconciled.length)
+      setDone(plan.transactions.length + plan.reconciled.length + plan.paymentMonthUpdates.length)
     } finally {
       setBusy(false)
     }
@@ -148,7 +152,7 @@ export function ImportSheet({ data, onClose }: Props) {
           </button>
         </div>
         <p className="muted small">
-          「日付・支払月・支払方法・金額・固定・照合メモ」の列がある表を読み込みます。同じファイルを何度取り込んでも、取り込み済みの行は重複しません。
+          「日付・支払月・支払方法・金額・固定・照合メモ」の列がある表を読み込みます。クレジットの引落月は、ファイルの「支払月」のとおりに取り込みます（支払月が空の行だけ、締め日・支払日から計算します）。同じファイルを何度取り込んでも、取り込み済みの行は重複しません。
         </p>
 
         <label className="btn file-btn">
@@ -227,6 +231,12 @@ export function ImportSheet({ data, onClose }: Props) {
                   <dd>{plan.duplicates}件</dd>
                 </div>
               )}
+              {plan.paymentMonthUpdates.length > 0 && (
+                <div>
+                  <dt>取り込み済みのうち支払月をファイルに合わせる</dt>
+                  <dd>{plan.paymentMonthUpdates.length}件</dd>
+                </div>
+              )}
               {unmappedRows > 0 && (
                 <div>
                   <dt>取り込まない</dt>
@@ -274,10 +284,10 @@ export function ImportSheet({ data, onClose }: Props) {
               <div className="sheet-actions">
                 <button
                   className="btn primary"
-                  disabled={busy || (plan.transactions.length === 0 && plan.reconciled.length === 0)}
+                  disabled={busy || (plan.transactions.length === 0 && plan.reconciled.length === 0 && plan.paymentMonthUpdates.length === 0)}
                   onClick={run}
                 >
-                  {plan.transactions.length + plan.reconciled.length}件を取り込む
+                  {plan.transactions.length + plan.reconciled.length + plan.paymentMonthUpdates.length}件を取り込む
                 </button>
               </div>
             )}

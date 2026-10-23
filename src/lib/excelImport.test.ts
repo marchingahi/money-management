@@ -42,6 +42,16 @@ describe('値の変換', () => {
     expect(toPaymentMonth(1, '2026-11-05')).toBe('2027-01')
     expect(toPaymentMonth('', '2026-11-05')).toBeUndefined()
   })
+
+  it('年つきの表記や日付の値もそのまま使う', () => {
+    expect(toPaymentMonth('2026/12', '2026-11-05')).toBe('2026-12')
+    expect(toPaymentMonth('2027年1月', '2026-11-05')).toBe('2027-01')
+    expect(toPaymentMonth('2026-12-26', '2026-11-05')).toBe('2026-12')
+    expect(toPaymentMonth('６月', '2026-04-05')).toBe('2026-06')
+    expect(toPaymentMonth(46382, '2026-11-05')).toBe('2026-12') // 2026-12-26 のシリアル値
+    expect(toPaymentMonth(new Date(2026, 11, 26), '2026-11-05')).toBe('2026-12')
+    expect(toPaymentMonth('2026/13', '2026-11-05')).toBeUndefined()
+  })
 })
 
 describe('guessMethod', () => {
@@ -96,17 +106,47 @@ describe('parseSheet / planImport', () => {
     const mapping = Object.fromEntries(rows.map((r) => [r.methodName, guessMethod(r.methodName, methods)]))
     const plan = planImport(rows, mapping, methods, [])
     expect(plan.transactions.map((t) => [t.category, t.amount, t.paymentMonth ?? null])).toEqual([
-      ['未分類', 1936, null],
-      ['固定費', 40000, null],
-      ['固定費', 40000, null],
+      ['未分類', 1936, '2026-06'],
+      ['固定費', 40000, '2026-06'],
+      ['固定費', 40000, '2026-06'],
       ['固定費', 3000, '2026-07'],
-      ['未分類', -500, null],
+      ['未分類', -500, '2026-06'],
     ])
     expect(billingOf('2026-05-31', methods[1], '2026-07').paymentDate).toBe('2026-07-27')
 
     const existing = plan.transactions.map((t, i) => ({ ...t, id: `t${i}` }))
     const again = planImport(rows, mapping, methods, existing)
-    expect(again).toEqual({ transactions: [], reconciled: [], duplicates: 5 })
+    expect(again).toEqual({ transactions: [], reconciled: [], duplicates: 5, paymentMonthUpdates: [] })
+  })
+
+  it('ファイルの支払月は、計算結果と一致していても保存する（クレジットのみ）', () => {
+    const rows = parseSheet([
+      ['日付', '支払月', '支払方法', '金額'],
+      [APR5, 5, 'エポス', 1000], // 4/5 利用 → 計算では 5/4 引落（5月）と一致
+      [APR5, 5, '現金', 500], // 現金は支払月を持たない
+    ]).rows
+    const mapping = { エポス: '6', 現金: '9' }
+    const plan = planImport(rows, mapping, methods, [])
+    expect(plan.transactions.map((t) => t.paymentMonth ?? null)).toEqual(['2026-05', null])
+  })
+
+  it('取り込み済みでも、支払月がファイルと違う（未保存を含む）ものは更新する', () => {
+    const rows = parseSheet([
+      ['日付', '支払月', '支払方法', '金額'],
+      [APR5, 6, 'エポス', 1000], // 計算では 5月のところ、ファイルは 6月
+      [APR5, 5, 'エポス', 2000], // 未保存だが 5月（ファイルと同じ）→ 固定する
+      [APR5, 5, 'エポス', 3000], // すでにファイルと同じ支払月を保存済み → 更新なし
+    ]).rows
+    const mapping = { エポス: '6' }
+    const first = planImport(rows, mapping, methods, []).transactions.map((t, i) => ({ ...t, id: `t${i}` }))
+    // 取り込み済みの 2 件目は、支払月が未保存の状態にしておく
+    const existing = first.map((t) => (t.id === 't1' ? { ...t, paymentMonth: undefined } : t)).map((t) => (t.id === 't0' ? { ...t, paymentMonth: '2026-05' } : t))
+    const again = planImport(rows, mapping, methods, existing)
+    expect(again.duplicates).toBe(3)
+    expect(again.paymentMonthUpdates).toEqual([
+      { id: 't0', paymentMonth: '2026-06' },
+      { id: 't1', paymentMonth: '2026-05' },
+    ])
   })
 
   it('取り込み前にレシートなどで入力済みの支出は、取り込みキーを付けて統合する（新規登録しない）', () => {
@@ -115,7 +155,7 @@ describe('parseSheet / planImport', () => {
     // レシート入力（取り込みキーなし）で、1件目と同じ日付・支払い方法・金額の支出が先に登録済み
     const receipt = { id: 'r1', date: '2026-04-05', amount: 1936, category: '食費', methodId: '6', memo: 'レシート入力分' }
     const plan = planImport(rows, mapping, methods, [receipt])
-    expect(plan.reconciled).toEqual([{ id: 'r1', importKey: '2026-04-05|EPOSカード|1936|0#1' }])
+    expect(plan.reconciled).toEqual([{ id: 'r1', importKey: '2026-04-05|EPOSカード|1936|0#1', paymentMonth: '2026-06' }])
     expect(plan.transactions.map((t) => t.amount)).toEqual([40000, 40000, 3000, -500])
     expect(plan.duplicates).toBe(0)
   })

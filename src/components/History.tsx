@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { billingOf } from '../lib/billing'
 import { inCycle } from '../lib/budget'
-import { cycleOf, formatMD, shiftCycle, todayYMD } from '../lib/dates'
+import { cycleOf, cycleRule, formatMD, shiftCycle, todayYMD } from '../lib/dates'
 import type { Transaction } from '../lib/types'
 import { yen, type AppData } from '../useData'
 
@@ -14,7 +14,7 @@ export function History({ data, onEdit }: Props) {
   const { settings, methods, transactions } = data
   const [offset, setOffset] = useState(0)
   const [methodFilter, setMethodFilter] = useState<string | undefined>(undefined)
-  const cycle = shiftCycle(cycleOf(todayYMD(), settings.cycleStartDay), offset, settings.cycleStartDay)
+  const cycle = shiftCycle(cycleOf(todayYMD(), cycleRule(settings)), offset, cycleRule(settings))
   const cycleTxs = transactions.filter((t) => inCycle(t.date, cycle))
   const txs = methodFilter ? cycleTxs.filter((t) => t.methodId === methodFilter) : cycleTxs
   const total = txs.reduce((s, t) => s + t.amount, 0)

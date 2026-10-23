@@ -21,7 +21,7 @@ export function IncomeForm({ status, cycle, onClose }: Props) {
     db.incomes
       .where('memberId')
       .equals(member.id!)
-      .filter((i) => i.cycleStart === cycle.start && !i.deleted)
+      .filter((i) => i.cycleStart.slice(0, 7) === cycle.start.slice(0, 7) && !i.deleted)
       .first()
 
   const save = async () => {

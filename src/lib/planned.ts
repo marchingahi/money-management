@@ -1,4 +1,4 @@
-import { cycleOf, fromYMD, type Cycle } from './dates'
+import { cycleOf, fromYMD, type Cycle, type CycleRuleLike } from './dates'
 import type { PlannedExpense, Transaction, YMD } from './types'
 
 /*
@@ -60,7 +60,7 @@ export function plannedStatuses(
   plans: (PlannedExpense & { id: string })[],
   txs: Transaction[],
   cycle: Cycle,
-  startDay: number,
+  startDay: CycleRuleLike,
   today: YMD,
 ): PlannedStatus[] {
   return plans.map((plan) => {

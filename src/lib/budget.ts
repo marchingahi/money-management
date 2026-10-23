@@ -1,6 +1,6 @@
 import { billingOf } from './billing'
 import { plannedStatuses, remainingOf, type PlannedStatus } from './planned'
-import { cycleOf, daysBetween, dayWithinCycle, shiftCycle, type Cycle } from './dates'
+import { cycleOf, cycleRule, daysBetween, dayWithinCycle, shiftCycle, type Cycle } from './dates'
 import { FIXED_CATEGORY, type Account, type PlannedExpense, type Transfer, type FixedCost, type Income, type Member, type PaymentMethod, type Settings, type Transaction, type YMD } from './types'
 
 export interface FixedStatus {
@@ -64,7 +64,8 @@ export function expectedTakeHome(m: Member): number {
 export function incomeStatuses(members: Member[], incomes: Income[], cycle: Cycle): IncomeStatus[] {
   return members.map((member) => {
     const estimate = expectedTakeHome(member)
-    const actual = incomes.find((i) => i.memberId === member.id && i.cycleStart === cycle.start)?.amount
+    // 開始日が月ごとに変わっても同じ月のサイクルとして扱えるよう、開始月で突き合わせる
+    const actual = incomes.find((i) => i.memberId === member.id && i.cycleStart.slice(0, 7) === cycle.start.slice(0, 7))?.amount
     return { member, estimate, actual, amount: actual ?? estimate }
   })
 }
@@ -74,7 +75,7 @@ export function incomeStatuses(members: Member[], incomes: Income[], cycle: Cycl
  * カード払いが中心なら、今使った分の多くは次の給料から引き落とされるので次のサイクルの給料を使う。
  */
 export function budgetIncomeCycle(cycle: Cycle, settings: Settings): Cycle {
-  return settings.budgetIncome === 'current' ? cycle : shiftCycle(cycle, 1, settings.cycleStartDay)
+  return settings.budgetIncome === 'current' ? cycle : shiftCycle(cycle, 1, cycleRule(settings))
 }
 
 export function summarize(
@@ -96,7 +97,7 @@ export function summarize(
     (t) => t.fixedCostId == null && t.plannedId == null && t.category === FIXED_CATEGORY && inCycle(t.date, cycle),
   )
   const fixedTotal = fixed.reduce((s, f) => s + f.reserved, 0) + otherFixed.reduce((s, t) => s + t.amount, 0)
-  const planned = plannedStatuses(plans, txs, cycle, settings.cycleStartDay, today)
+  const planned = plannedStatuses(plans, txs, cycle, cycleRule(settings), today)
   const plannedTotal = planned.reduce((s, p) => s + p.thisCycleTotal, 0)
   const budget = income - fixedTotal - settings.savings - plannedTotal
   // 予定の出費の支払いは確保済みのお金から払うので、普段の支出には数えない
@@ -252,7 +253,9 @@ export function cashflowFor(
   }
 }
 
-export const incomeDate = (cycle: Cycle, member: Member) => dayWithinCycle(cycle, member.payday)
+/** 給料日がサイクル開始日と同じ人は、その月の開始日（給料日がずれた月も追従）に入金される */
+export const incomeDate = (cycle: Cycle, member: Member, cycleStartDay?: number) =>
+  member.payday === cycleStartDay ? cycle.start : dayWithinCycle(cycle, member.payday)
 
 /** 口座のお金が動く予定 1 件 */
 export interface AccountEvent {
@@ -292,7 +295,7 @@ export function cycleEvents(
   }
   for (const i of cf.incomes) {
     push(
-      { key: `income:${i.member.id}@${cf.cycle.start}`, date: incomeDate(cf.cycle, i.member), amount: i.amount, label: `${i.member.name}の手取り` },
+      { key: `income:${i.member.id}@${cf.cycle.start}`, date: incomeDate(cf.cycle, i.member, settings.cycleStartDay), amount: i.amount, label: `${i.member.name}の手取り` },
       i.member.accountId,
     )
   }
@@ -406,16 +409,16 @@ export function budgetImpactFor(
   planned: (PlannedExpense & { id: string })[],
   settings: Settings,
 ): BudgetImpact {
-  const cycle = cycleOf(today, settings.cycleStartDay)
+  const cycle = cycleOf(today, cycleRule(settings))
   const incomeCycle = budgetIncomeCycle(cycle, settings)
   const s = summarize(cycle, today, members, incomeRecords, fixedCosts, txs, settings, incomeCycle, planned)
-  const cycles = [0, 1, 2].map((n) => shiftCycle(cycle, n, settings.cycleStartDay))
+  const cycles = [0, 1, 2].map((n) => shiftCycle(cycle, n, cycleRule(settings)))
   const flows = outflows(today, methods, txs, fixedCosts, cycles, planned)
   const oldestBalance = accounts.flatMap((a) => (a.balance != null && a.balanceDate ? [a.balanceDate] : [])).sort()[0]
   const leadCycles: Cycle[] = []
   if (oldestBalance && oldestBalance < cycle.start) {
-    for (let n = -1; n >= -6 && shiftCycle(cycle, n + 1, settings.cycleStartDay).start > oldestBalance; n--) {
-      leadCycles.unshift(shiftCycle(cycle, n, settings.cycleStartDay))
+    for (let n = -1; n >= -6 && shiftCycle(cycle, n + 1, cycleRule(settings)).start > oldestBalance; n--) {
+      leadCycles.unshift(shiftCycle(cycle, n, cycleRule(settings)))
     }
   }
   const toCashflow = (c: Cycle) => cashflowFor(c, members, incomeRecords, flows, settings)

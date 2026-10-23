@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { cycleOf, formatMD, shiftCycle, todayYMD } from '../lib/dates'
+import { cycleOf, formatMD, shiftCycle, todayYMD, type CycleRuleLike } from '../lib/dates'
 import type { PaymentMethod, PlannedExpense } from '../lib/types'
 import { db } from '../db'
 import { repo } from '../repo'
@@ -7,7 +7,7 @@ import { yen } from '../useData'
 
 interface Props {
   methods: (PaymentMethod & { id: string })[]
-  startDay: number
+  startDay: CycleRuleLike
   initial: Partial<PlannedExpense>
   onClose: () => void
 }

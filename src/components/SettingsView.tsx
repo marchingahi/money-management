@@ -1,7 +1,7 @@
 import { Fragment, useState, type ChangeEvent } from 'react'
 import { backupToDataSet, exportBackup } from '../db'
 import { describeSchedule } from '../lib/cardPresets'
-import { newMember } from '../lib/seed'
+import { newMember, seedDataSet } from '../lib/seed'
 import { repo } from '../repo'
 import { expectedTakeHome, NO_ACCOUNT } from '../lib/budget'
 import { formatMD, todayYMD } from '../lib/dates'
@@ -134,6 +134,25 @@ export function SettingsView({ data }: { data: AppData }) {
     a.download = `money-backup-${todayYMD()}.json`
     a.click()
     URL.revokeObjectURL(url)
+  }
+
+  const resetAll = async () => {
+    if (
+      !confirm(
+        '入力したデータ（支出・収入・口座・固定費・予定の出費など）をすべて消して、初期状態に戻します。\n\n' +
+          '同期をオンにしている場合は、ほかの端末のデータも消えます。\n' +
+          '先にバックアップのファイルを保存します。続けますか？',
+      )
+    )
+      return
+    try {
+      await download()
+      if (!confirm('バックアップを保存しました。本当に初期化しますか？この操作は取り消せません。')) return
+      await repo.replaceAll(seedDataSet())
+      setMessage('初期化しました')
+    } catch (err) {
+      setMessage(`初期化に失敗しました: ${err instanceof Error ? err.message : String(err)}`)
+    }
   }
 
   const upload = async (e: ChangeEvent<HTMLInputElement>) => {
@@ -533,6 +552,9 @@ export function SettingsView({ data }: { data: AppData }) {
           </label>
           <button className="btn" onClick={() => setImporting(true)}>
             Excelから取り込み
+          </button>
+          <button className="btn danger" onClick={resetAll}>
+            データを初期化
           </button>
         </div>
         {message && <p className="hint">{message}</p>}

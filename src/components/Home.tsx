@@ -3,6 +3,7 @@ import { budgetIncomeCycle, inCycle, outflows, summarize, type IncomeStatus } fr
 import { cycleOf, cycleRule, formatMD, fromYMD, shiftCycle, todayYMD } from '../lib/dates'
 import { FIXED_CATEGORY, type Transaction } from '../lib/types'
 import { dayLabel, yen, type AppData } from '../useData'
+import { CardTimingCard } from './CardTimingCard'
 import { CashflowCard } from './CashflowCard'
 import { PlannedCard } from './PlannedCard'
 import { IncomeForm } from './IncomeForm'
@@ -109,6 +110,7 @@ export function Home({ data, onEntry }: Props) {
           </>
         )}
       </section>
+      {!needsSetup && <CardTimingCard data={data} today={today} cycle={cycle} />}
       {!needsSetup && <CashflowCard data={data} cycles={cycles} leadCycles={leadCycles} flows={flows} />}
       <PlannedCard data={data} cycle={cycle} statuses={s.planned} total={s.plannedTotal} onPay={onEntry} />
 

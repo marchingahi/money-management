@@ -137,6 +137,8 @@ export interface Settings {
   cycleStartOverrides?: Record<string, number>
   /** 開始日（給料日）が土日・祝日などの休業日なら前の営業日にする。未設定は true */
   cycleStartBusinessDay?: boolean
+  /** ホームの「給料ごとの残り」で最初に開く給料。未設定は今回の給料 */
+  cashflowInitial?: 'current' | 'next'
   /** 先取り貯金額 */
   savings: number
   /**

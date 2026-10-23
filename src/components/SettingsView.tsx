@@ -263,6 +263,18 @@ export function SettingsView({ data }: { data: AppData }) {
               <option value="current">今回の給料（現金払いが中心）</option>
             </select>
           </label>
+          <label>
+            給料ごとの残りの初期表示
+            <select
+              value={settings.cashflowInitial ?? 'current'}
+              onChange={(e) =>
+                repo.update('settings', 'main', { cashflowInitial: e.target.value as 'current' | 'next' })
+              }
+            >
+              <option value="current">今回の給料</option>
+              <option value="next">次の給料</option>
+            </select>
+          </label>
           {accounts.length > 1 && (
             <label>
               先取り貯金を出す口座

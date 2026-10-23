@@ -30,8 +30,19 @@ export function History({ data, onEdit }: Props) {
   const removeAll = async () => {
     if (txs.length === 0) return
     const target = methodFilter ? `${methods.find((m) => m.id === methodFilter)?.name ?? ''}の` : ''
+    // まだ引き落とされていないクレジットの支出は、削除すると給料ごとの残りの請求からも消える
+    const today = todayYMD()
+    const upcoming = txs.filter((t) => {
+      const method = methods.find((m) => m.id === t.methodId)
+      return method?.kind === 'credit' && billingOf(t.date, method, t.paymentMonth).paymentDate >= today
+    })
+    const warning = upcoming.length
+      ? `⚠ 引落日が今日以降のクレジット払い${upcoming.length}件（${yen(upcoming.reduce((sum, t) => sum + t.amount, 0))}）が含まれています。` +
+        '削除すると、給料ごとの残りの引落予定からも消え、残りが実際より多く表示されます。\n\n'
+      : ''
     const ok = confirm(
       `${formatMD(cycle.start)}〜${formatMD(cycle.end)}の${target}支出${txs.length}件（合計 ${yen(total)}）をすべて削除します。\n\n` +
+        warning +
         'この操作は取り消せません。必要なら先に設定画面でバックアップを保存してください。続けますか？',
     )
     if (!ok) return

@@ -3,6 +3,7 @@ import { billingOf } from '../lib/billing'
 import { inCycle } from '../lib/budget'
 import { cycleOf, cycleRule, formatMD, shiftCycle, todayYMD } from '../lib/dates'
 import type { Transaction } from '../lib/types'
+import { repo } from '../repo'
 import { yen, type AppData } from '../useData'
 
 interface Props {
@@ -25,6 +26,17 @@ export function History({ data, onEdit }: Props) {
 
   const byDate = new Map<string, Transaction[]>()
   for (const t of txs) byDate.set(t.date, [...(byDate.get(t.date) ?? []), t])
+
+  const removeAll = async () => {
+    if (txs.length === 0) return
+    const target = methodFilter ? `${methods.find((m) => m.id === methodFilter)?.name ?? ''}の` : ''
+    const ok = confirm(
+      `${formatMD(cycle.start)}〜${formatMD(cycle.end)}の${target}支出${txs.length}件（合計 ${yen(total)}）をすべて削除します。\n\n` +
+        'この操作は取り消せません。必要なら先に設定画面でバックアップを保存してください。続けますか？',
+    )
+    if (!ok) return
+    for (const t of txs) await repo.remove('transactions', t.id)
+  }
 
   return (
     <div className="history">
@@ -106,6 +118,11 @@ export function History({ data, onEdit }: Props) {
             </ul>
           </div>
         ))}
+        {txs.length > 0 && (
+          <button className="link-btn danger" onClick={removeAll}>
+            {methodFilter ? `${methods.find((m) => m.id === methodFilter)?.name ?? ''}の` : ''}この期間の支出${txs.length}件をすべて削除
+          </button>
+        )}
       </section>
     </div>
   )

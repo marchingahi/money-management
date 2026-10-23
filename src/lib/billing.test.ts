@@ -94,7 +94,8 @@ describe('summarize', () => {
     { id: '2', date: '2026-10-05', amount: 12000, category: '固定費', methodId: '1', memo: '', fixedCostId: '1' },
     { id: '3', date: '2026-09-20', amount: 8000, category: '食費', methodId: '1', memo: '' }, // 前サイクル
   ]
-  const settings = { id: 'main' as const, cycleStartDay: 25, savings: 50000 }
+  // 営業日調整は別のテストで確認するので、ここでは毎月 25 日固定にする
+  const settings = { id: 'main' as const, cycleStartDay: 25, savings: 50000, cycleStartBusinessDay: false }
 
   it('時給の見込み手取り', () => {
     expect(expectedTakeHome(wife)).toBe(103680)

@@ -55,3 +55,50 @@ describe('月ごとのサイクル開始日の上書き', () => {
     expect(s.actual).toBe(300)
   })
 })
+
+describe('開始日が休業日なら前の営業日にする', () => {
+  const biz = { startDay: 25, businessDay: true }
+
+  it('日曜は金曜に、平日はそのまま', () => {
+    // 2026-10-25 は日曜
+    expect(cycleOf('2026-10-23', biz)).toEqual({ start: '2026-10-23', end: '2026-11-24' })
+    expect(cycleOf('2026-10-22', biz).end).toBe('2026-10-22')
+    // 2026-11-25 は水曜
+    expect(cycleOf('2026-11-25', biz).start).toBe('2026-11-25')
+  })
+
+  it('祝日は前の営業日まで戻る（2026-11-23 は祝日の月曜 → 20日の金曜）', () => {
+    expect(cycleOf('2026-11-20', { startDay: 23, businessDay: true }).start).toBe('2026-11-20')
+  })
+
+  it('調整しない指定（数値・businessDay なし）は従来どおり', () => {
+    expect(cycleOf('2026-10-23', 25).start).toBe('2026-09-25')
+    expect(cycleOf('2026-10-23', { startDay: 25 }).start).toBe('2026-09-25')
+  })
+
+  it('月ごとの個別指定は営業日調整をしない', () => {
+    // 2026-10 を 25 日（日曜）に個別指定したら、そのまま 25 日
+    expect(cycleOf('2026-10-25', { ...biz, overrides: { '2026-10': 25 } }).start).toBe('2026-10-25')
+    expect(cycleOf('2026-10-24', { ...biz, overrides: { '2026-10': 25 } }).start).toBe('2026-09-25')
+  })
+
+  it('shiftCycle で何か月進めても、サイクルは隙間も重なりもなくつながる', () => {
+    let c = cycleOf('2026-01-10', biz)
+    for (let i = 0; i < 24; i++) {
+      const n = shiftCycle(c, 1, biz)
+      const next = new Date(c.end)
+      next.setDate(next.getDate() + 1)
+      expect(n.start).toBe(next.toISOString().slice(0, 10))
+      c = n
+    }
+  })
+
+  it('1 日開始で年始に前の年へずれ込んでも、全日がちょうど 1 つのサイクルに入る', () => {
+    const r = { startDay: 1, businessDay: true }
+    // 2027-01-01 は金曜で、年始の休業日（1/1〜1/3）なので 12/30 開始になる
+    expect(cycleOf('2026-12-30', r).start).toBe('2026-12-30')
+    expect(cycleOf('2026-12-29', r).end).toBe('2026-12-29')
+    expect(shiftCycle(cycleOf('2026-12-10', r), 1, r).start).toBe('2026-12-30')
+    expect(shiftCycle(cycleOf('2026-12-30', r), 1, r).start).toBe('2027-02-01')
+  })
+})

@@ -4,7 +4,7 @@ import { describeSchedule } from '../lib/cardPresets'
 import { newMember, seedDataSet } from '../lib/seed'
 import { repo } from '../repo'
 import { expectedTakeHome, NO_ACCOUNT } from '../lib/budget'
-import { cycleOf, cycleRule, dayInMonth, formatMD, todayYMD, toYMD } from '../lib/dates'
+import { cycleInMonth, cycleRule, formatMD, todayYMD } from '../lib/dates'
 import { KIND_LABEL, type Account, type MethodKind, type PayType } from '../lib/types'
 import { dayLabel, yen, type AppData } from '../useData'
 import { CardPresetSheet } from './CardPresetSheet'
@@ -77,9 +77,8 @@ function CycleOverrides({ settings }: { settings: AppData['settings'] }) {
     repo.update('settings', 'main', { cycleStartOverrides: Object.keys(next).length ? next : undefined })
   const entries = Object.entries(overrides).sort(([a], [b]) => a.localeCompare(b))
   const range = (ym: string, day: number) => {
-    // その月の末日は必ずその月に始まるサイクルの中にある
     const [y, m] = ym.split('-').map(Number)
-    const c = cycleOf(toYMD(dayInMonth(y, m - 1, 31)), cycleRule({ ...settings, cycleStartOverrides: { ...overrides, [ym]: day } }))
+    const c = cycleInMonth(y, m - 1, cycleRule({ ...settings, cycleStartOverrides: { ...overrides, [ym]: day } }))
     return `${formatMD(c.start)}〜${formatMD(c.end)}`
   }
   return (
@@ -275,6 +274,15 @@ export function SettingsView({ data }: { data: AppData }) {
             </label>
           )}
         </div>
+        <label className="check">
+          <input
+            type="checkbox"
+            checked={settings.cycleStartBusinessDay !== false}
+            onChange={(e) => repo.update('settings', 'main', { cycleStartBusinessDay: e.target.checked })}
+          />{' '}
+          開始日が土日・祝日なら前の営業日にする
+        </label>
+        <p className="muted small">給料日が休みの場合は前倒しで振り込まれるため、サイクルもその日から始めます。下の「月ごとの個別指定」はこの調整をせず、指定した日のまま使います。</p>
         <CycleOverrides settings={settings} />
       </section>
 

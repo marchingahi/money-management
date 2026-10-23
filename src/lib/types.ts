@@ -135,6 +135,8 @@ export interface Settings {
   cycleStartDay: number
   /** 給料日がずれた月だけ開始日を変える（サイクルが始まる月 'yyyy-MM' → 開始日）。例: { '2026-10': 23 } */
   cycleStartOverrides?: Record<string, number>
+  /** 開始日（給料日）が土日・祝日などの休業日なら前の営業日にする。未設定は true */
+  cycleStartBusinessDay?: boolean
   /** 先取り貯金額 */
   savings: number
   /**

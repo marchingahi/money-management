@@ -1,3 +1,4 @@
+import type { DataSet } from './legacy'
 import type { Member, PaymentMethod, Settings } from './types'
 
 /*
@@ -45,3 +46,16 @@ export const SEED_METHODS: PaymentMethod[] = [
   credit(8, 'イオン', 10, 2),
   { id: 'm-9', name: '現金', kind: 'cash', closingDay: 31, paymentDay: 31, monthOffset: 0, order: 9 },
 ]
+
+/** 初期化後のデータ。初期データ以外はすべて空 */
+export const seedDataSet = (): DataSet => ({
+  members: SEED_MEMBERS,
+  incomes: [],
+  accounts: [],
+  transfers: [],
+  planned: [],
+  methods: SEED_METHODS,
+  fixedCosts: [],
+  transactions: [],
+  settings: [SEED_SETTINGS],
+})

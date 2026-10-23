@@ -36,8 +36,8 @@ const NEW_ACCOUNT = '__new'
 /** 給料ごとに「その期間の引落・支払いを済ませたあと、いくら残るか」を表示する */
 export function CashflowCard({ data, cycles, leadCycles, flows }: Props) {
   const { settings, accounts, transfers } = data
-  // 今カードで使った分が引き落とされるのは主に次の給料なので、次の給料を初期表示にする
-  const [selected, setSelected] = useState(Math.min(1, cycles.length - 1))
+  // 初期表示は設定で選ぶ（既定は今回の給料。カード払い中心なら、使った分が引き落とされる次の給料にもできる）
+  const [selected, setSelected] = useState(Math.min(settings.cashflowInitial === 'next' ? 1 : 0, cycles.length - 1))
   const [editingIncome, setEditingIncome] = useState<IncomeStatus | null>(null)
   const [editingAccount, setEditingAccount] = useState<Account | null>(null)
   const [editingTransfer, setEditingTransfer] = useState<Partial<Transfer> | null>(null)

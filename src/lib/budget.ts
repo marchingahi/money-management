@@ -342,6 +342,8 @@ export interface AccountCarry {
   closing: number
   /** 期間中に残高がマイナスになる最初の予定 */
   shortage: { date: YMD; balance: number; label: string } | null
+  /** 残高がマイナスのまま出金が続く予定すべて（日付順。各時点の残高つき）。最初の 1 件は shortage と同じ */
+  shortages: { date: YMD; balance: number; label: string }[]
 }
 
 export interface CycleCarry {
@@ -370,13 +372,16 @@ export function projectAccounts(
       const opening = running.get(account.id!)!
       let balance = opening
       let shortage: AccountCarry['shortage'] = null
+      const shortages: AccountCarry['shortages'] = []
       for (const e of events) {
         if (e.accountId !== account.id || isSettled(e, account)) continue
         balance += e.amount
         if (balance < 0 && !shortage) shortage = { date: e.date, balance, label: e.label }
+        // 最初の不足のあとに続く出金（別のカードの引落など）も、それぞれ不足として数える
+        if (balance < 0 && e.amount < 0) shortages.push({ date: e.date, balance, label: e.label })
       }
       running.set(account.id!, balance)
-      return { account, fromInput: inCycle(account.balanceDate!, cf.cycle), opening, closing: balance, shortage }
+      return { account, fromInput: inCycle(account.balanceDate!, cf.cycle), opening, closing: balance, shortage, shortages }
     })
     return {
       accounts: carries,

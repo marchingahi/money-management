@@ -123,6 +123,15 @@ export interface Outflow {
   includesEstimate: boolean
   /** 固定費で口座を指定している場合の口座（未設定なら支払い方法の口座） */
   accountId?: string
+  /** 口座を指定した固定費の名前（残高不足などの案内に使う） */
+  fixedNames?: string[]
+}
+
+/** 口座の入出金の予定に付ける名前。口座を指定した固定費は、その固定費の名前で案内する */
+export function outflowLabel(o: Outflow): string {
+  const names = o.fixedNames?.join('・')
+  if (o.method.kind === 'credit') return names ? `${o.method.name} 引落（${names}）` : `${o.method.name} 引落`
+  return names ? `${names}の支払い` : `${o.method.name}での支払い`
 }
 
 /** 出金（支払い方法 × 出金日 × 口座の指定）を区別するキー。残高入力日の反映済み指定にも使う */
@@ -145,7 +154,15 @@ export function outflows(
   const byId = new Map(methods.map((m) => [m.id!, m]))
   const groups = new Map<string, Outflow>()
 
-  const add = (date: YMD, amount: number, methodId: string, estimate: boolean, paymentMonth?: string, accountId?: string) => {
+  const add = (
+    date: YMD,
+    amount: number,
+    methodId: string,
+    estimate: boolean,
+    paymentMonth?: string,
+    accountId?: string,
+    fixedName?: string,
+  ) => {
     const method = byId.get(methodId)
     if (!method) return
     const billing = billingOf(date, method, paymentMonth)
@@ -166,11 +183,15 @@ export function outflows(
     }
     g.amount += amount
     g.includesEstimate ||= estimate
+    if (fixedName && !g.fixedNames?.includes(fixedName)) g.fixedNames = [...(g.fixedNames ?? []), fixedName]
     groups.set(key, g)
   }
 
-  const fixedAccount = new Map(fixedCosts.map((f) => [f.id, f.accountId]))
-  for (const t of txs) add(t.date, t.amount, t.methodId, false, t.paymentMonth, t.fixedCostId ? fixedAccount.get(t.fixedCostId) : undefined)
+  const fixedById = new Map(fixedCosts.map((f) => [f.id, f]))
+  for (const t of txs) {
+    const fixed = t.fixedCostId ? fixedById.get(t.fixedCostId) : undefined
+    add(t.date, t.amount, t.methodId, false, t.paymentMonth, fixed?.accountId, fixed?.accountId ? fixed.name : undefined)
+  }
   // 払い終わっていない予定の出費は、残りの額が予定日に出ていく見込みとして含める
   // （予定日を過ぎているなら今日払う見込みとして）
   const paidByPlan = new Map<string, number>()
@@ -181,7 +202,7 @@ export function outflows(
   }
   for (const cycle of cyclesForEstimates) {
     for (const f of fixedStatuses(fixedCosts, txs, cycle)) {
-      if (f.actual == null) add(f.date, f.cost.amount, f.cost.methodId, true, undefined, f.cost.accountId)
+      if (f.actual == null) add(f.date, f.cost.amount, f.cost.methodId, true, undefined, f.cost.accountId, f.cost.accountId ? f.cost.name : undefined)
     }
   }
 
@@ -310,7 +331,7 @@ export function cycleEvents(
         key: outflowKey(o),
         date: o.paymentDate,
         amount: -o.amount,
-        label: o.method.kind === 'credit' ? `${o.method.name} 引落` : `${o.method.name}での支払い`,
+        label: outflowLabel(o),
       },
       o.accountId ?? o.method.accountId,
     )

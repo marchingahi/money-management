@@ -219,7 +219,8 @@ describe('summarize', () => {
     const noSavings = { ...settings, savings: 0 }
     const cf = cashflowFor(c, [], [], flows, noSavings)
     const [carry] = projectAccounts([cf], accounts, noSavings)!
-    expect(carry.accounts[0].shortage).toMatchObject({ date: '2026-10-26', balance: -40000 })
+    // 案内には、支払い方法ではなく固定費の名前が出る
+    expect(carry.accounts[0].shortage).toMatchObject({ date: '2026-10-26', balance: -40000, label: '住宅ローンの支払い' })
     expect(carry.accounts[1].shortage).toBeNull()
 
     // 平日（10/27 火）の利用日はそのまま。祝日（11/23 月・勤労感謝の日）は翌営業日の 11/24

@@ -222,8 +222,10 @@ describe('summarize', () => {
     expect(carry.accounts[0].shortage).toMatchObject({ date: '2026-10-26', balance: -40000 })
     expect(carry.accounts[1].shortage).toBeNull()
 
-    // 平日（10/23 金）の利用日はそのまま。口座を指定していない固定費は従来どおり利用日
-    expect(outflows('2026-10-01', [cash], [], [{ ...loan, day: 23 }], [c]).map((f) => f.paymentDate)).toEqual(['2026-10-23'])
+    // 平日（10/27 火）の利用日はそのまま。祝日（11/23 月・勤労感謝の日）は翌営業日の 11/24
+    expect(outflows('2026-10-01', [cash], [], [{ ...loan, day: 27 }], [c]).map((f) => f.paymentDate)).toEqual(['2026-10-27'])
+    expect(outflows('2026-10-01', [cash], [], [{ ...loan, day: 23 }], [c]).map((f) => f.paymentDate)).toEqual(['2026-11-24'])
+    // 口座を指定していない固定費は従来どおり利用日
     const noAccount = { id: 'f2', name: '管理費', amount: 9760, day: 25, methodId: '9' }
     expect(outflows('2026-10-01', [cash], [], [noAccount], [c]).map((f) => f.paymentDate)).toEqual(['2026-10-25'])
     // 実額を入力した場合（固定費に紐付く支出）も、同じ口座・翌営業日

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { cycleEvents, cashflowFor, outflowKey, outflows } from './budget'
+import { cycleEvents, cashflowFor, outflowKey, outflows, shortageKind } from './budget'
 import { cycleOf } from './dates'
 import type { Account, FixedCost, PaymentMethod, Settings } from './types'
 
@@ -58,5 +58,43 @@ describe('固定費の名前での案内', () => {
     expect(outflowKey(flows[0])).toContain('#a2')
     const cf = cashflowFor(cycleOf(flows[0].paymentDate, 25), [], [], flows, { ...settings, savings: 0 })
     expect(cycleEvents(cf, accounts, { ...settings, savings: 0 }).map((e) => e.label)).toEqual(['カード 引落（住宅ローン(元金)）'])
+  })
+})
+
+describe('残高不足の種類', () => {
+  const carry = (balances: [number, number][]) =>
+    ({
+      accounts: balances.map(([closing, min], i) => ({
+        account: { id: `x${i}`, name: `口座${i}`, order: i },
+        fromInput: true,
+        opening: 0,
+        closing,
+        shortage: min < 0 ? { date: '2026-10-26', balance: min, label: '引落' } : null,
+        shortages: min < 0 ? [{ date: '2026-10-26', balance: min, label: '引落' }] : [],
+      })),
+      opening: 0,
+      closing: balances.reduce((s, [c]) => s + c, 0),
+    }) as unknown as Parameters<typeof shortageKind>[0]
+
+  it('不足がなければ null', () => {
+    expect(shortageKind(carry([[1000, 1000], [2000, 2000]]))).toBeNull()
+  })
+
+  it('ほかの口座に余裕があれば、振替で補える', () => {
+    expect(shortageKind(carry([[-30000, -30000], [500000, 500000]]))).toBe('transfer')
+  })
+
+  it('ほかの口座を合わせても足りなければ、入金が必要', () => {
+    expect(shortageKind(carry([[-30000, -30000], [20000, 20000]]))).toBe('insufficient')
+  })
+
+  it('口座が 1 つだけなら、入金が必要', () => {
+    expect(shortageKind(carry([[-30000, -30000]]))).toBe('insufficient')
+  })
+
+  it('最も不足する時点の額で比べる（最後に戻っていても、途中の不足を補う必要がある）', () => {
+    // 口座 0 は終了時 −1,000 でも途中で −60,000 まで下がる。口座 1 の余裕は 50,000
+    expect(shortageKind(carry([[-1000, -60000], [50000, 50000]]))).toBe('insufficient')
+    expect(shortageKind(carry([[-1000, -60000], [70000, 70000]]))).toBe('transfer')
   })
 })

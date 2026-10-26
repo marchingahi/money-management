@@ -562,7 +562,7 @@ export function SettingsView({ data }: { data: AppData }) {
       <section className="card">
         <h2>固定費</h2>
         <p className="muted small">
-          光熱費など毎月金額が変わるものは見込み額を入れておき、請求が来たらホーム画面から実額を入力してください。
+          光熱費など毎月金額が変わるものは見込み額を入れておき、請求が来たらホーム画面から実額を入力してください。引落口座を指定した固定費は、口座から引き落とされるものとして、利用日が土日・祝日なら翌営業日の引落になります。
         </p>
         {fixedCosts.map((f) => (
           <div key={f.id} className="item">

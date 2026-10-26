@@ -1,6 +1,6 @@
 import { billingOf } from './billing'
 import { plannedStatuses, remainingOf, type PlannedStatus } from './planned'
-import { cycleOf, cycleRule, daysBetween, dayWithinCycle, shiftCycle, type Cycle } from './dates'
+import { cycleOf, cycleRule, daysBetween, dayWithinCycle, fromYMD, nextBusinessDay, shiftCycle, toYMD, type Cycle } from './dates'
 import { FIXED_CATEGORY, type Account, type PlannedExpense, type Transfer, type FixedCost, type Income, type Member, type PaymentMethod, type Settings, type Transaction, type YMD } from './types'
 
 export interface FixedStatus {
@@ -148,7 +148,12 @@ export function outflows(
   const add = (date: YMD, amount: number, methodId: string, estimate: boolean, paymentMonth?: string, accountId?: string) => {
     const method = byId.get(methodId)
     if (!method) return
-    const { closingDate, paymentDate } = billingOf(date, method, paymentMonth)
+    const billing = billingOf(date, method, paymentMonth)
+    const { closingDate } = billing
+    let paymentDate = billing.paymentDate
+    // 引落口座を指定した固定費（住宅ローンなど）は口座から引き落とされるので、休業日なら翌営業日になる
+    // （クレジットは引落日の計算で、すでに休業日を翌営業日にしている）
+    if (accountId && method.kind !== 'credit') paymentDate = toYMD(nextBusinessDay(fromYMD(paymentDate)))
     const key = `${methodId}|${paymentDate}|${accountId ?? ''}`
     const g = groups.get(key) ?? {
       method,

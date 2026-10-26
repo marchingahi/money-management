@@ -205,6 +205,32 @@ describe('summarize', () => {
     ])
   })
 
+  it('固定費: 引落口座を指定すると、休業日は翌営業日の引落になり、その口座の残高不足を判定する', () => {
+    const cash: PaymentMethod = { id: '9', name: '現金', kind: 'cash', closingDay: 31, paymentDay: 31, monthOffset: 0, order: 9, accountId: NO_ACCOUNT }
+    const loan = { id: 'f1', name: '住宅ローン', amount: 70000, day: 25, methodId: '9', accountId: 'A' }
+    const accounts: Account[] = [
+      { id: 'A', name: '三井住友', order: 1, balance: 30000, balanceDate: '2026-10-01' },
+      { id: 'B', name: '楽天', order: 2, balance: 500000, balanceDate: '2026-10-01' },
+    ]
+    // 10/25 のサイクル。25 日は日曜なので、翌営業日の 10/26（月）に引き落とされる
+    const c = shiftCycle(cycle, 1, 25)
+    const flows = outflows('2026-10-01', [cash], [], [loan], [c])
+    expect(flows.map((f) => [f.paymentDate, f.amount, f.accountId])).toEqual([['2026-10-26', 70000, 'A']])
+    const noSavings = { ...settings, savings: 0 }
+    const cf = cashflowFor(c, [], [], flows, noSavings)
+    const [carry] = projectAccounts([cf], accounts, noSavings)!
+    expect(carry.accounts[0].shortage).toMatchObject({ date: '2026-10-26', balance: -40000 })
+    expect(carry.accounts[1].shortage).toBeNull()
+
+    // 平日（10/23 金）の利用日はそのまま。口座を指定していない固定費は従来どおり利用日
+    expect(outflows('2026-10-01', [cash], [], [{ ...loan, day: 23 }], [c]).map((f) => f.paymentDate)).toEqual(['2026-10-23'])
+    const noAccount = { id: 'f2', name: '管理費', amount: 9760, day: 25, methodId: '9' }
+    expect(outflows('2026-10-01', [cash], [], [noAccount], [c]).map((f) => f.paymentDate)).toEqual(['2026-10-25'])
+    // 実額を入力した場合（固定費に紐付く支出）も、同じ口座・翌営業日
+    const actual = { id: 't', date: '2026-10-25', amount: 65000, category: '固定費', methodId: '9', memo: '', fixedCostId: 'f1' }
+    expect(outflows('2026-10-01', [cash], [actual], [loan], []).map((f) => [f.paymentDate, f.amount, f.accountId])).toEqual([['2026-10-26', 65000, 'A']])
+  })
+
   it('projectAccounts: 同じ口座で不足が続くときは、出金ごとにすべて不足として数える', () => {
     // どちらのカードも口座 B から引き落とす。残高 5,000 に対して 9/28 に 30,000、10/5 に 7,000
     const methods = [{ ...olive, accountId: 'B' }, { ...saison, accountId: 'B' }]

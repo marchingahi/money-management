@@ -417,6 +417,22 @@ export function projectAccounts(
   })
 }
 
+/**
+ * 残高不足の種類。
+ * transfer: ほかの口座の残高で補えるので、口座間の振替をすれば足りる
+ * insufficient: ほかの口座を合わせても足りず、入金が必要
+ */
+export function shortageKind(carry: CycleCarry): 'transfer' | 'insufficient' | null {
+  const short = carry.accounts.filter((a) => a.shortage)
+  if (!short.length) return null
+  const needed = short.reduce((sum, a) => {
+    const list = a.shortages.length ? a.shortages : [a.shortage!]
+    return sum - Math.min(0, ...list.map((s) => s.balance))
+  }, 0)
+  const spare = carry.accounts.filter((a) => !a.shortage).reduce((sum, a) => sum + Math.max(a.closing, 0), 0)
+  return spare >= needed ? 'transfer' : 'insufficient'
+}
+
 export interface BudgetImpact {
   /** 今サイクルの残り予算（使った日ベース） */
   remaining: number

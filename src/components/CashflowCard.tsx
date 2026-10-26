@@ -3,6 +3,7 @@ import {
   cashflowFor,
   cycleEvents,
   isSettled,
+  shortageKind,
   projectAccounts,
   type AccountEvent,
   type IncomeStatus,
@@ -123,7 +124,7 @@ export function CashflowCard({ data, cycles, leadCycles, flows }: Props) {
       <div className="cf-tabs" role="tablist">
         {all.map((c, i) => {
           const main = carries ? carries[i].closing : c.remaining
-          const short = carries?.[i].accounts.some((a) => a.shortage)
+          const kind = carries ? shortageKind(carries[i]) : null
           return (
             <button
               key={c.cycle.start}
@@ -134,8 +135,12 @@ export function CashflowCard({ data, cycles, leadCycles, flows }: Props) {
             >
               <span className="cf-tab-label">{paydayLabel(c.cycle)}</span>
               <span className={`cf-tab-amount ${main < 0 ? 'neg' : ''}`}>{yen(main)}</span>
-              {short ? (
-                <span className="cf-tab-note neg">口座不足</span>
+              {kind ? (
+                kind === 'transfer' ? (
+                  <span className="cf-tab-note">要振替</span>
+                ) : (
+                  <span className="cf-tab-note neg">残高不足</span>
+                )
               ) : (
                 c.open && <span className="cf-tab-note">変動中</span>
               )}
@@ -317,10 +322,11 @@ export function CashflowCard({ data, cycles, leadCycles, flows }: Props) {
           // 不足がいくつも続く場合は、出金ごとに案内し、いちばん不足する時点まで補えるようにする
           const list = c.shortages.length ? c.shortages : [c.shortage!]
           const worst = Math.min(...list.map((s) => s.balance))
+          const canTransfer = shortageKind(carry) === 'transfer'
           return list.map((s, i) => (
             <p key={`${c.account.id}-${s.date}-${s.label}`} className="cf-warn neg">
               ⚠ {formatMD(s.date)}の{s.label}で、{c.account.name}の残高が{yen(s.balance)}
-              になります。{i === 0 && '事前に入金が必要です。'}
+              になります。{i === 0 && (canTransfer ? 'ほかの口座からの振替で補えます。' : '事前に入金が必要です。')}
               {i === 0 && list.length > 1 && `（このあとも不足が続き、最大 ${yen(worst)} になります）`}
               {i === 0 && accounts.length >= 2 && (
                 <button

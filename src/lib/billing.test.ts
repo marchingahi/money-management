@@ -205,6 +205,32 @@ describe('summarize', () => {
     ])
   })
 
+  it('projectAccounts: 同じ口座で不足が続くときは、出金ごとにすべて不足として数える', () => {
+    // どちらのカードも口座 B から引き落とす。残高 5,000 に対して 9/28 に 30,000、10/5 に 7,000
+    const methods = [{ ...olive, accountId: 'B' }, { ...saison, accountId: 'B' }]
+    const txs = [
+      { id: '1', date: '2026-08-20', amount: 30000, category: '食費', methodId: '1', memo: '' }, // 9/28 引落
+      { id: '3', date: '2026-09-05', amount: 7000, category: '食費', methodId: '3', memo: '' }, // 10/5 引落
+    ]
+    const accounts: Account[] = [
+      { id: 'A', name: '三井住友', order: 1, balance: 500000, balanceDate: '2026-09-25' },
+      { id: 'B', name: '楽天', order: 2, balance: 5000, balanceDate: '2026-09-25' },
+    ]
+    const s = { ...settings, savingsAccountId: 'A' }
+    const flows = outflows('2026-09-25', methods, txs, [], [])
+    const [cur] = projectAccounts([cashflowFor(cycle, [], [], flows, s)], accounts, s)!
+    const b = cur.accounts[1]
+    expect(b.closing).toBe(-32000)
+    // 最初の不足は従来どおり 1 件目
+    expect(b.shortage).toMatchObject({ date: '2026-09-28', balance: -25000 })
+    // 続く 10/5 の引落も、不足として残る
+    expect(b.shortages.map((x) => [x.date, x.balance, x.label])).toEqual([
+      ['2026-09-28', -25000, 'Olive 引落'],
+      ['2026-10-05', -32000, 'セゾン 引落'],
+    ])
+    expect(cur.accounts[0].shortages).toEqual([])
+  })
+
   it('projectAccounts: 口座間の振替で不足を補える（家計全体の残りは変わらない）', () => {
     const methods = [{ ...olive, accountId: 'A' }, { ...saison, accountId: 'B' }]
     const people = [

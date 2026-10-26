@@ -313,20 +313,26 @@ export function CashflowCard({ data, cycles, leadCycles, flows }: Props) {
       </ul>
       {carry?.accounts
         .filter((c) => c.shortage)
-        .map((c) => (
-          <p key={c.account.id} className="cf-warn neg">
-            ⚠ {formatMD(c.shortage!.date)}の{c.shortage!.label}で、{c.account.name}の残高が{yen(c.shortage!.balance)}
-            になります。事前に入金が必要です。
-            {accounts.length >= 2 && (
-              <button
-                className="link-btn warn-action"
-                onClick={() => coverShortage(c.account.id!, c.shortage!.date, c.shortage!.balance)}
-              >
-                振替で補う
-              </button>
-            )}
-          </p>
-        ))}
+        .flatMap((c) => {
+          // 不足がいくつも続く場合は、出金ごとに案内し、いちばん不足する時点まで補えるようにする
+          const list = c.shortages.length ? c.shortages : [c.shortage!]
+          const worst = Math.min(...list.map((s) => s.balance))
+          return list.map((s, i) => (
+            <p key={`${c.account.id}-${s.date}-${s.label}`} className="cf-warn neg">
+              ⚠ {formatMD(s.date)}の{s.label}で、{c.account.name}の残高が{yen(s.balance)}
+              になります。{i === 0 && '事前に入金が必要です。'}
+              {i === 0 && list.length > 1 && `（このあとも不足が続き、最大 ${yen(worst)} になります）`}
+              {i === 0 && accounts.length >= 2 && (
+                <button
+                  className="link-btn warn-action"
+                  onClick={() => coverShortage(c.account.id!, s.date, worst)}
+                >
+                  振替で補う
+                </button>
+              )}
+            </p>
+          ))
+        })}
       {cf.open && (
         <p className="cf-warn">締め日前のカードがあります。これからそのカードで使うと、この残りが減ります。</p>
       )}

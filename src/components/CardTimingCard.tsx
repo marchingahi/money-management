@@ -1,4 +1,5 @@
 import { cardTimings } from '../lib/cardTiming'
+import { Collapsible } from './Collapsible'
 import { cycleRule, formatMD, type Cycle } from '../lib/dates'
 import type { AppData } from '../useData'
 
@@ -16,8 +17,7 @@ export function CardTimingCard({ data, today, cycle }: Props) {
   const timings = cardTimings(today, data.methods, cycleRule(data.settings))
   if (timings.length === 0) return null
   return (
-    <section className="card">
-      <h2>どのカードで使うと、いつ払う？</h2>
+    <Collapsible id="card-timing" title="どのカードで使うと、いつ払う？">
       <p className="muted small">
         今日（{formatMD(today)}）に使った場合の、各カードの締め日・引落日と、払う給料です。
       </p>
@@ -43,6 +43,6 @@ export function CardTimingCard({ data, today, cycle }: Props) {
           )
         })}
       </ul>
-    </section>
+    </Collapsible>
   )
 }

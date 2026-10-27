@@ -218,3 +218,9 @@ input, select { width: 100%; padding: 9px 10px; border: 1px solid var(--border);
 @media (min-width: 960px) {
   .home .planned { grid-column: 1 / -1; }
 }
+
+/* ホームのカードの開閉 */
+.collapse-head { display: flex; justify-content: space-between; align-items: center; width: 100%; padding: 0; background: none; border: none; font: inherit; color: inherit; text-align: left; cursor: pointer; }
+.collapse-icon { color: var(--muted); font-size: 12px; }
+.card.collapsed h2 { margin-bottom: 0; }
+[hidden] { display: none !important; }

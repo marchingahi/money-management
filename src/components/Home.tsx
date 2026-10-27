@@ -4,6 +4,8 @@ import { cycleOf, cycleRule, formatMD, fromYMD, shiftCycle, todayYMD } from '../
 import { FIXED_CATEGORY, type Transaction } from '../lib/types'
 import { dayLabel, yen, type AppData } from '../useData'
 import { CardTimingCard } from './CardTimingCard'
+import { Collapsible } from './Collapsible'
+import { useOpen } from './useOpen'
 import { CashflowCard } from './CashflowCard'
 import { PlannedCard } from './PlannedCard'
 import { IncomeForm } from './IncomeForm'
@@ -15,6 +17,7 @@ interface Props {
 
 export function Home({ data, onEntry }: Props) {
   const { settings, members, incomes, methods, fixedCosts, transactions } = data
+  const [showBreakdown, toggleBreakdown] = useOpen('hero-breakdown')
   const [editingIncome, setEditingIncome] = useState<IncomeStatus | null>(null)
   const today = todayYMD()
   const cycle = cycleOf(today, cycleRule(settings))
@@ -65,7 +68,10 @@ export function Home({ data, onEntry }: Props) {
             <div className="bar" aria-label={`予算の${Math.round(usedRatio * 100)}%を使用`}>
               <div className={`bar-fill ${s.remaining < 0 ? 'neg' : ''}`} style={{ width: `${usedRatio * 100}%` }} />
             </div>
-            <dl className="breakdown">
+            <button type="button" className="link-btn" onClick={toggleBreakdown} aria-expanded={showBreakdown}>
+              {showBreakdown ? '内訳を隠す ▴' : '内訳を見る ▾'}
+            </button>
+            <dl className="breakdown" hidden={!showBreakdown}>
               <div>
                 <dt>世帯の手取り（{formatMD(incomeCycle.start)}の給料）</dt>
                 <dd>{yen(s.income)}</dd>
@@ -114,8 +120,7 @@ export function Home({ data, onEntry }: Props) {
       {!needsSetup && <CashflowCard data={data} cycles={cycles} leadCycles={leadCycles} flows={flows} />}
       <PlannedCard data={data} cycle={cycle} statuses={s.planned} total={s.plannedTotal} onPay={onEntry} />
 
-      <section className="card">
-        <h2>今後の引落予定</h2>
+      <Collapsible id="billings" title="今後の引落予定">
         {billings.length === 0 && <p className="muted">引落予定はありません</p>}
         {[...billingsByMonth].map(([month, list]) => (
           <div key={month} className="billing-month">
@@ -141,11 +146,10 @@ export function Home({ data, onEntry }: Props) {
             </ul>
           </div>
         ))}
-      </section>
+      </Collapsible>
 
       {(s.fixed.length > 0 || s.otherFixed.length > 0) && (
-        <section className="card">
-          <h2>今サイクルの固定費</h2>
+        <Collapsible id="fixed" title="今サイクルの固定費">
           <ul className="list">
             {s.otherFixed.map((t) => (
               <li key={`tx-${t.id}`} className="clickable" onClick={() => onEntry(t)}>
@@ -192,7 +196,7 @@ export function Home({ data, onEntry }: Props) {
               )
             })}
           </ul>
-        </section>
+        </Collapsible>
       )}
       {editingIncome && <IncomeForm status={editingIncome} cycle={incomeCycle} onClose={() => setEditingIncome(null)} />}
     </div>

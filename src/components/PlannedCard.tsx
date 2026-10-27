@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { Collapsible } from './Collapsible'
 import { cycleRule, formatMD, todayYMD, type Cycle } from '../lib/dates'
 import type { PlannedStatus } from '../lib/planned'
 import type { PlannedExpense, Transaction } from '../lib/types'
@@ -53,8 +54,7 @@ export function PlannedCard({ data, cycle, statuses, total, onPay }: Props) {
     })
 
   return (
-    <section className="card planned">
-      <h2>予定の出費</h2>
+    <Collapsible id="planned" title="予定の出費" className="card planned">
       {shown.length > 0 ? (
         <p className="planned-lead">
           今サイクルで確保するお金 <strong>{yen(total)}</strong>
@@ -118,6 +118,6 @@ export function PlannedCard({ data, cycle, statuses, total, onPay }: Props) {
           onClose={() => setEditing(null)}
         />
       )}
-    </section>
+    </Collapsible>
   )
 }

@@ -22,7 +22,7 @@ export function Home({ data, onEntry }: Props) {
   const today = todayYMD()
   const cycle = cycleOf(today, cycleRule(settings))
   const incomeCycle = budgetIncomeCycle(cycle, settings)
-  const s = summarize(cycle, today, members, incomes, fixedCosts, transactions, settings, incomeCycle, data.planned)
+  const s = summarize(cycle, today, members, incomes, fixedCosts, transactions, settings, incomeCycle, data.planned, methods)
   const cycles = [0, 1, 2].map((n) => shiftCycle(cycle, n, cycleRule(settings)))
   const flows = outflows(today, methods, transactions, fixedCosts, cycles, data.planned)
   // 口座残高の入力日が今のサイクルより前なら、そこから今のサイクルの手前まで（最大6回分）も繰越の計算に使う
@@ -115,6 +115,26 @@ export function Home({ data, onEntry }: Props) {
                 <dt>使った額</dt>
                 <dd>−{yen(s.spent)}</dd>
               </div>
+              {s.committed.length > 0 && (
+                <>
+                  <div>
+                    <dt>確定済みの引落（前の利用分）</dt>
+                    <dd>−{yen(s.committedTotal)}</dd>
+                  </div>
+                  {s.committed.map((c) => (
+                    <div key={`${c.method.id}-${c.paymentDate}`} className="sub">
+                      <dt>
+                        {c.method.name}（{formatMD(c.paymentDate)}引落）
+                      </dt>
+                      <dd>{yen(c.amount)}</dd>
+                    </div>
+                  ))}
+                  <div className="total">
+                    <dt>実質あと使える額</dt>
+                    <dd className={s.realRemaining < 0 ? 'neg' : ''}>{yen(s.realRemaining)}</dd>
+                  </div>
+                </>
+              )}
             </dl>
           </>
         )}

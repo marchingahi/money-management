@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { accountOfOutflow, cycleEvents, cashflowFor, outflowKey, outflows, shortageKind } from './budget'
+import { accountOfOutflow, committedBillings, cycleEvents, cashflowFor, outflowKey, outflows, shortageKind, summarize } from './budget'
 import { cycleOf } from './dates'
 import type { Account, FixedCost, PaymentMethod, Settings } from './types'
 
@@ -118,5 +118,52 @@ describe('引落先の口座', () => {
     // 固定費で口座を指定すれば、口座を使わない現金でもその口座から出る
     expect(accountOfOutflow(out(wallet, 'a2'), accts)?.name).toBe('三井住友')
     expect(accountOfOutflow(out(card), [])).toBeUndefined()
+  })
+})
+
+describe('確定済みの引落（実質あと使える額）', () => {
+  const olive: PaymentMethod = { id: 'o', name: 'Olive', kind: 'credit', closingDay: 31, paymentDay: 26, monthOffset: 1, order: 1 }
+  const saison: PaymentMethod = { id: 's', name: 'セゾン', kind: 'credit', closingDay: 10, paymentDay: 4, monthOffset: 1, order: 2 }
+  const cash: PaymentMethod = { id: 'k', name: '現金', kind: 'cash', closingDay: 31, paymentDay: 31, monthOffset: 0, order: 3 }
+  const methods = [olive, saison, cash]
+  const cycle = cycleOf('2026-10-27', { startDay: 25, businessDay: true }) // 10/23〜11/24
+  const incomeCycle = cycleOf('2026-11-27', { startDay: 25, businessDay: true }) // 11/25〜12/24
+  const tx = (id: string, date: string, amount: number, methodId: string, extra: Partial<import('./types').Transaction> = {}) =>
+    ({ id, date, amount, category: '食費', methodId, memo: '', ...extra })
+
+  it('今サイクルより前の利用で、次の給料の期間に引き落とされるクレジットだけを数える', () => {
+    const txs = [
+      tx('1', '2026-10-10', 12724, 'o'), // 10/31 締め → 11/26 引落 ✓
+      tx('2', '2026-10-05', 3000, 'o'), // 同じ 11/26 引落 → 1 つにまとめる
+      tx('3', '2026-10-25', 5000, 'o'), // 今サイクルの利用 → 使った額に入っているので数えない
+      tx('4', '2026-09-10', 9000, 'o'), // 9/30 締め → 10/26 引落 → 次の給料の期間ではない
+      tx('5', '2026-10-12', 777, 'k'), // 現金は利用日に出ている
+      tx('6', '2026-10-10', 4000, 'o', { plannedId: 'p' }), // 予定の出費の支払いは確保済みのお金から払う
+      tx('7', '2026-10-20', 20000, 's'), // 11/10 締め → 12/4 引落 ✓
+    ]
+    const c = committedBillings(txs, methods, cycle, incomeCycle)
+    expect(c.map((x) => [x.method.name, x.paymentDate, x.amount])).toEqual([
+      ['Olive', '2026-11-26', 15724],
+      ['セゾン', '2026-12-04', 20000],
+    ])
+  })
+
+  it('支払月を保存した支出は、その月の引落で数える', () => {
+    // 計算では 11/26 引落のところ、支払月を 12 月に指定 → 12/28 引落（12/26 は土曜）で、次の給料の期間の外
+    expect(committedBillings([tx('1', '2026-10-10', 1000, 'o', { paymentMonth: '2026-12' })], methods, cycle, incomeCycle)).toEqual([])
+    // 計算では 10/26 引落（期間の外）のところ、支払月を 11 月に指定 → 11/26 引落で期間の中
+    const c = committedBillings([tx('1', '2026-09-10', 1000, 'o', { paymentMonth: '2026-11' })], methods, cycle, incomeCycle)
+    expect(c.map((x) => x.paymentDate)).toEqual(['2026-11-26'])
+  })
+
+  it('summarize: 実質あと使える額 = あと使える額 − 確定済みの引落', () => {
+    const txs = [tx('1', '2026-10-10', 12724, 'o'), tx('2', '2026-10-25', 5000, 'o')]
+    const m = [{ id: 'p', name: '自分', payday: 25, payType: 'monthly', takeHome: 300000, hourlyWage: 0, hoursPerDay: 0, daysPerMonth: 0, deductionRate: 0 }] as unknown as import('./types').Member[]
+    const s = summarize(cycle, '2026-10-27', m, [], [], txs, { ...settings, savings: 0 }, incomeCycle, [], methods)
+    expect(s.remaining).toBe(300000 - 5000 - 12724 + 12724) // 前の利用分は使った額に入らない
+    expect(s.committedTotal).toBe(12724)
+    expect(s.realRemaining).toBe(s.remaining - 12724)
+    // 支払い方法を渡さなければ（取り込み前後の比較など）従来どおり
+    expect(summarize(cycle, '2026-10-27', m, [], [], txs, { ...settings, savings: 0 }, incomeCycle).realRemaining).toBe(s.remaining)
   })
 })

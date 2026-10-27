@@ -36,10 +36,47 @@ export interface BudgetSummary {
   /** 固定費以外で使った額（利用日ベース） */
   spent: number
   remaining: number
+  /** すでに確定している引落: 今サイクルより前の利用分のクレジットで、予算の元にする給料の期間に引き落とされるもの */
+  committed: CommittedBilling[]
+  committedTotal: number
+  /** 実質あと使える額 = remaining − committedTotal */
+  realRemaining: number
   /** 今日を含む残り日数。サイクル外なら null */
   daysLeft: number | null
   perDay: number | null
   fixed: FixedStatus[]
+}
+
+/** 今サイクルより前の利用で、この給料の期間にすでに引き落としが決まっているクレジットの請求（支払い方法 × 引落日） */
+export interface CommittedBilling {
+  method: PaymentMethod
+  paymentDate: YMD
+  amount: number
+}
+
+/**
+ * 今サイクルの予算の元にする給料（incomeCycle）の期間に引き落とされる、前の利用分のクレジットの請求。
+ * 今サイクルの利用分は「使った額」に入っているので含めない。予定の出費の支払いは確保済みのお金から払うので含めない。
+ */
+export function committedBillings(
+  txs: Transaction[],
+  methods: PaymentMethod[],
+  cycle: Cycle,
+  incomeCycle: Cycle,
+): CommittedBilling[] {
+  const byId = new Map(methods.map((m) => [m.id, m]))
+  const groups = new Map<string, CommittedBilling>()
+  for (const t of txs) {
+    const method = byId.get(t.methodId)
+    if (!method || method.kind !== 'credit' || t.plannedId != null || t.date >= cycle.start) continue
+    const paymentDate = billingOf(t.date, method, t.paymentMonth).paymentDate
+    if (!inCycle(paymentDate, incomeCycle)) continue
+    const key = `${method.id}|${paymentDate}`
+    const g = groups.get(key) ?? { method, paymentDate, amount: 0 }
+    g.amount += t.amount
+    groups.set(key, g)
+  }
+  return [...groups.values()].sort((a, b) => a.paymentDate.localeCompare(b.paymentDate) || a.method.order - b.method.order)
 }
 
 export const inCycle = (date: YMD, cycle: Cycle) => date >= cycle.start && date <= cycle.end
@@ -89,6 +126,7 @@ export function summarize(
   /** 予算の元にする給料のサイクル（カード払い中心なら次のサイクル。budgetIncomeCycle を参照） */
   incomeCycle: Cycle = cycle,
   plans: (PlannedExpense & { id: string })[] = [],
+  methods: PaymentMethod[] = [],
 ): BudgetSummary {
   const incomes = incomeStatuses(members, incomeRecords, incomeCycle)
   const income = incomes.reduce((s, i) => s + i.amount, 0)
@@ -105,9 +143,28 @@ export function summarize(
     .filter((t) => !isFixedTx(t) && t.plannedId == null && inCycle(t.date, cycle))
     .reduce((s, t) => s + t.amount, 0)
   const remaining = budget - spent
+  const committed = committedBillings(txs, methods, cycle, incomeCycle)
+  const committedTotal = committed.reduce((sum, c) => sum + c.amount, 0)
   const daysLeft = inCycle(today, cycle) ? daysBetween(today, cycle.end) + 1 : null
   const perDay = daysLeft ? Math.floor(Math.max(remaining, 0) / daysLeft) : null
-  return { income, incomes, fixedTotal, otherFixed, savings: settings.savings, plannedTotal, planned, budget, spent, remaining, daysLeft, perDay, fixed }
+  return {
+    income,
+    incomes,
+    fixedTotal,
+    otherFixed,
+    savings: settings.savings,
+    plannedTotal,
+    planned,
+    budget,
+    spent,
+    remaining,
+    committed,
+    committedTotal,
+    realRemaining: remaining - committedTotal,
+    daysLeft,
+    perDay,
+    fixed,
+  }
 }
 
 /** 口座などから実際にお金が出ていく単位（支払い方法 × 出金日） */
@@ -464,7 +521,7 @@ export function budgetImpactFor(
 ): BudgetImpact {
   const cycle = cycleOf(today, cycleRule(settings))
   const incomeCycle = budgetIncomeCycle(cycle, settings)
-  const s = summarize(cycle, today, members, incomeRecords, fixedCosts, txs, settings, incomeCycle, planned)
+  const s = summarize(cycle, today, members, incomeRecords, fixedCosts, txs, settings, incomeCycle, planned, methods)
   const cycles = [0, 1, 2].map((n) => shiftCycle(cycle, n, cycleRule(settings)))
   const flows = outflows(today, methods, txs, fixedCosts, cycles, planned)
   const oldestBalance = accounts.flatMap((a) => (a.balance != null && a.balanceDate ? [a.balanceDate] : [])).sort()[0]

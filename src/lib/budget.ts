@@ -306,6 +306,12 @@ export function accountResolver(accounts: Account[]) {
   }
 }
 
+/** 出金が引き落とされる口座。固定費で指定した口座、なければ支払い方法の口座（口座を使わない場合は undefined） */
+export function accountOfOutflow(o: Outflow, accounts: Account[]): Account | undefined {
+  const id = accountResolver(accounts)(o.accountId ?? o.method.accountId)
+  return accounts.find((a) => a.id === id)
+}
+
 /** あるサイクルの収支と口座間の振替を、口座ごとの入出金の予定に分解する */
 export function cycleEvents(
   cf: CycleCashflow,

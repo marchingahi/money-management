@@ -227,3 +227,5 @@ input[type="checkbox"] { width: 20px; height: 20px; padding: 0; flex-shrink: 0; 
 .collapse-icon { color: var(--muted); font-size: 12px; }
 .card.collapsed h2 { margin-bottom: 0; }
 [hidden] { display: none !important; }
+.badges { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.badges .badge { margin-left: 0; }

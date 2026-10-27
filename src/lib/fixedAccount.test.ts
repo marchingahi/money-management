@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { cycleEvents, cashflowFor, outflowKey, outflows, shortageKind } from './budget'
+import { accountOfOutflow, cycleEvents, cashflowFor, outflowKey, outflows, shortageKind } from './budget'
 import { cycleOf } from './dates'
 import type { Account, FixedCost, PaymentMethod, Settings } from './types'
 
@@ -96,5 +96,27 @@ describe('残高不足の種類', () => {
     // 口座 0 は終了時 −1,000 でも途中で −60,000 まで下がる。口座 1 の余裕は 50,000
     expect(shortageKind(carry([[-1000, -60000], [50000, 50000]]))).toBe('insufficient')
     expect(shortageKind(carry([[-1000, -60000], [70000, 70000]]))).toBe('transfer')
+  })
+})
+
+describe('引落先の口座', () => {
+  const accts: Account[] = [
+    { id: 'a1', name: 'Olive', order: 1 },
+    { id: 'a2', name: '三井住友', order: 2 },
+  ]
+  const wallet: PaymentMethod = { id: 'w', name: '財布の現金', kind: 'cash', closingDay: 31, paymentDay: 31, monthOffset: 0, order: 3, accountId: 'none' }
+  const bank: PaymentMethod = { id: 'b', name: '口座引落', kind: 'debit', closingDay: 31, paymentDay: 31, monthOffset: 0, order: 4, accountId: 'a2' }
+  const unset: PaymentMethod = { id: 'u', name: '現金', kind: 'cash', closingDay: 31, paymentDay: 31, monthOffset: 0, order: 5 }
+  const out = (m: PaymentMethod, accountId?: string) =>
+    ({ method: m, paymentDate: '2026-11-01', closingDate: '2026-11-01', amount: 1, confirmed: true, includesEstimate: false, ...(accountId && { accountId }) })
+
+  it('支払い方法の口座、固定費で指定した口座、未指定は最初の口座。口座を使わない現金は口座なし', () => {
+    expect(accountOfOutflow(out(card), accts)?.name).toBe('Olive') // カードに口座の指定なし → 最初の口座
+    expect(accountOfOutflow(out(bank), accts)?.name).toBe('三井住友')
+    expect(accountOfOutflow(out(unset), accts)?.name).toBe('Olive')
+    expect(accountOfOutflow(out(wallet), accts)).toBeUndefined()
+    // 固定費で口座を指定すれば、口座を使わない現金でもその口座から出る
+    expect(accountOfOutflow(out(wallet, 'a2'), accts)?.name).toBe('三井住友')
+    expect(accountOfOutflow(out(card), [])).toBeUndefined()
   })
 })

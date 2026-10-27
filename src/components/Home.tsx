@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { budgetIncomeCycle, inCycle, outflows, summarize, type IncomeStatus } from '../lib/budget'
+import { accountOfOutflow, budgetIncomeCycle, inCycle, outflowKey, outflows, summarize, type IncomeStatus } from '../lib/budget'
 import { cycleOf, cycleRule, formatMD, fromYMD, shiftCycle, todayYMD } from '../lib/dates'
 import { FIXED_CATEGORY, type Transaction } from '../lib/types'
 import { dayLabel, yen, type AppData } from '../useData'
@@ -35,7 +35,10 @@ export function Home({ data, onEntry }: Props) {
       leadCycles.unshift(shiftCycle(cycle, n, cycleRule(settings)))
     }
   }
-  const billings = flows.filter((o) => o.method.kind === 'credit' && o.paymentDate >= today)
+  // 引落予定: クレジットの請求と、口座から引き落とされる現金払い・固定費（口座を使わない現金は除く）
+  const billings = flows.filter(
+    (o) => o.paymentDate >= today && (o.method.kind === 'credit' || accountOfOutflow(o, data.accounts) != null),
+  )
   const memberName = (id?: string) => members.find((m) => m.id === id)?.name
   const methodName = (id: string) => methods.find((m) => m.id === id)?.name ?? '（削除済み）'
   const usedRatio = s.budget > 0 ? Math.min(s.spent / s.budget, 1) : 1
@@ -129,20 +132,33 @@ export function Home({ data, onEntry }: Props) {
               <span>{yen(list.reduce((t, b) => t + b.amount, 0))}</span>
             </div>
             <ul className="list">
-              {list.map((b) => (
-                <li key={`${b.method.id}-${b.paymentDate}`}>
-                  <span className="date">{formatMD(b.paymentDate)}</span>
-                  <span className="grow">
-                    {b.method.name}
-                    {b.method.ownerId != null && <span className="owner">{memberName(b.method.ownerId)}</span>}
-                    <span className={`badge ${b.confirmed ? 'ok' : ''}`}>
-                      {b.confirmed ? '確定' : `${formatMD(b.closingDate)}締め`}
+              {list.map((b) => {
+                const account = accountOfOutflow(b, data.accounts)
+                const credit = b.method.kind === 'credit'
+                const fixed = b.fixedNames?.join('・')
+                return (
+                  <li key={outflowKey(b)}>
+                    <span className="date">{formatMD(b.paymentDate)}</span>
+                    <span className="grow">
+                      {credit ? b.method.name : (fixed ?? b.method.name)}
+                      {credit && fixed && <span className="muted small">固定費: {fixed}</span>}
+                      {b.method.ownerId != null && <span className="owner">{memberName(b.method.ownerId)}</span>}
+                      <span className="badges">
+                        {credit ? (
+                          <span className={`badge ${b.confirmed ? 'ok' : ''}`}>
+                            {b.confirmed ? '確定' : `${formatMD(b.closingDate)}締め`}
+                          </span>
+                        ) : (
+                          <span className="badge">口座引落</span>
+                        )}
+                        {b.includesEstimate && <span className="badge est">見込み含む</span>}
+                      </span>
+                      {account && <span className="muted small">引落口座: {account.name}</span>}
                     </span>
-                    {b.includesEstimate && <span className="badge est">見込み含む</span>}
-                  </span>
-                  <span className="amount">{yen(b.amount)}</span>
-                </li>
-              ))}
+                    <span className="amount">{yen(b.amount)}</span>
+                  </li>
+                )
+              })}
             </ul>
           </div>
         ))}

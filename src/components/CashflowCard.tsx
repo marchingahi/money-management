@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { Collapsible } from './Collapsible'
 import {
   cashflowFor,
   cycleEvents,
@@ -114,8 +115,7 @@ export function CashflowCard({ data, cycles, leadCycles, flows }: Props) {
   }
 
   return (
-    <section className="card cashflow">
-      <h2>給料ごとの残り</h2>
+    <Collapsible id="cashflow" title="給料ごとの残り" className="card cashflow">
       <p className="muted small">
         その給料から、次の給料日の前日までの引落・支払いを払ったあとに残る額
         {carries && '（口座残高からの繰越込み）'}
@@ -357,6 +357,6 @@ export function CashflowCard({ data, cycles, leadCycles, flows }: Props) {
       {editingAccount && (
         <BalanceForm account={editingAccount} eventsOn={eventsOn} onClose={() => setEditingAccount(null)} />
       )}
-    </section>
+    </Collapsible>
   )
 }

@@ -23,10 +23,13 @@ export function FixedSuggest({ candidates, selected, onChange }: Props) {
       <ul className="list">
         {candidates.map((c) => (
           <li key={c.key}>
-            <label className="grow">
-              <input type="checkbox" checked={selected.has(c.key)} onChange={() => toggle(c.key)} /> {c.memo}
-              <span className="muted small">
-                {yen(c.amount)}・{c.months.length}か月連続・{c.txs.length}件
+            <label className="settle-item">
+              <input type="checkbox" checked={selected.has(c.key)} onChange={() => toggle(c.key)} />
+              <span className="grow">
+                {c.memo}
+                <span className="muted small">
+                  {yen(c.amount)}・{c.months.length}か月連続・{c.txs.length}件
+                </span>
               </span>
             </label>
           </li>

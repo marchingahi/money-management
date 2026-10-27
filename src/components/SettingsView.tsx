@@ -291,8 +291,8 @@ export function SettingsView({ data }: { data: AppData }) {
             type="checkbox"
             checked={settings.cycleStartBusinessDay !== false}
             onChange={(e) => repo.update('settings', 'main', { cycleStartBusinessDay: e.target.checked })}
-          />{' '}
-          開始日が土日・祝日なら前の営業日にする
+          />
+          <span>開始日が土日・祝日なら前の営業日にする</span>
         </label>
         <p className="muted small">給料日が休みの場合は前倒しで振り込まれるため、サイクルもその日から始めます。下の「月ごとの個別指定」はこの調整をせず、指定した日のまま使います。</p>
         <CycleOverrides settings={settings} />

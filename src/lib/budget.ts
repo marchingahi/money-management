@@ -1,7 +1,7 @@
 import { billingOf } from './billing'
 import { plannedStatuses, remainingOf, type PlannedStatus } from './planned'
 import { cycleOf, cycleRule, daysBetween, dayWithinCycle, fromYMD, nextBusinessDay, shiftCycle, toYMD, type Cycle } from './dates'
-import { FIXED_CATEGORY, type Account, type PlannedExpense, type Transfer, type FixedCost, type Income, type Member, type PaymentMethod, type Settings, type Transaction, type YMD } from './types'
+import { FIXED_CATEGORY, type Account, type ExtraIncome, type PlannedExpense, type Transfer, type FixedCost, type Income, type Member, type PaymentMethod, type Settings, type Transaction, type YMD } from './types'
 
 export interface FixedStatus {
   cost: FixedCost
@@ -293,6 +293,9 @@ export interface CycleCashflow {
   /** 期間中に使った現金・QR・デビットなど（支払い方法ごとの合計） */
   direct: { method: PaymentMethod; amount: number; includesEstimate: boolean }[]
   outTotal: number
+  /** 期間中に口座へ直接入る臨時収入（日付順） */
+  extras: ExtraIncome[]
+  extraTotal: number
   savings: number
   remaining: number
   /** 締め日前のカード請求を含む（これから使うほど減る） */
@@ -305,8 +308,11 @@ export function cashflowFor(
   incomeRecords: Income[],
   flows: Outflow[],
   settings: Settings,
+  extraIncomes: ExtraIncome[] = [],
 ): CycleCashflow {
   const incomes = incomeStatuses(members, incomeRecords, cycle)
+  const extras = extraIncomes.filter((e) => inCycle(e.date, cycle)).sort((a, b) => a.date.localeCompare(b.date))
+  const extraTotal = extras.reduce((s, e) => s + e.amount, 0)
   const income = incomes.reduce((s, i) => s + i.amount, 0)
   const inRange = flows.filter((o) => inCycle(o.paymentDate, cycle))
   const cards = inRange.filter((o) => o.method.kind === 'credit')
@@ -330,8 +336,10 @@ export function cashflowFor(
     cards,
     direct,
     outTotal,
+    extras,
+    extraTotal,
     savings: settings.savings,
-    remaining: income - outTotal - settings.savings,
+    remaining: income + extraTotal - outTotal - settings.savings,
     open: cards.some((c) => !c.confirmed),
   }
 }
@@ -386,6 +394,12 @@ export function cycleEvents(
     push(
       { key: `income:${i.member.id}@${cf.cycle.start}`, date: incomeDate(cf.cycle, i.member, settings.cycleStartDay), amount: i.amount, label: `${i.member.name}の手取り` },
       i.member.accountId,
+    )
+  }
+  for (const x of cf.extras) {
+    push(
+      { key: `extra:${x.id}`, date: x.date, amount: x.amount, label: x.memo ? `臨時収入（${x.memo}）` : '臨時収入' },
+      x.accountId,
     )
   }
   for (const o of cf.items) {
@@ -518,6 +532,7 @@ export function budgetImpactFor(
   transfers: Transfer[],
   planned: (PlannedExpense & { id: string })[],
   settings: Settings,
+  extraIncomes: ExtraIncome[] = [],
 ): BudgetImpact {
   const cycle = cycleOf(today, cycleRule(settings))
   const incomeCycle = budgetIncomeCycle(cycle, settings)
@@ -531,7 +546,7 @@ export function budgetImpactFor(
       leadCycles.unshift(shiftCycle(cycle, n, cycleRule(settings)))
     }
   }
-  const toCashflow = (c: Cycle) => cashflowFor(c, members, incomeRecords, flows, settings)
+  const toCashflow = (c: Cycle) => cashflowFor(c, members, incomeRecords, flows, settings, extraIncomes)
   const carries = projectAccounts([...leadCycles.map(toCashflow), ...cycles.map(toCashflow)], accounts, settings, transfers)
   const carry = carries?.[leadCycles.length]
   return { remaining: s.remaining, accounts: carry?.accounts.map((c) => ({ account: c.account, closing: c.closing })) ?? [] }

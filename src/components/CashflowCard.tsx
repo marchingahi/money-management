@@ -13,10 +13,11 @@ import {
 } from '../lib/budget'
 import { addDays } from 'date-fns'
 import { formatMD, fromYMD, toYMD, todayYMD, type Cycle } from '../lib/dates'
-import type { Account, PaymentMethod, Transfer, YMD } from '../lib/types'
+import type { Account, ExtraIncome, PaymentMethod, Transfer, YMD } from '../lib/types'
 import { yen, type AppData } from '../useData'
 import { BalanceForm } from './BalanceForm'
 import { IncomeForm } from './IncomeForm'
+import { ExtraIncomeForm } from './ExtraIncomeForm'
 import { TransferForm } from './TransferForm'
 
 interface Props {
@@ -43,8 +44,9 @@ export function CashflowCard({ data, cycles, leadCycles, flows }: Props) {
   const [editingIncome, setEditingIncome] = useState<IncomeStatus | null>(null)
   const [editingAccount, setEditingAccount] = useState<Account | null>(null)
   const [editingTransfer, setEditingTransfer] = useState<Partial<Transfer> | null>(null)
+  const [editingExtra, setEditingExtra] = useState<Partial<ExtraIncome> | null>(null)
 
-  const toCashflow = (c: Cycle) => cashflowFor(c, data.members, data.incomes, flows, settings)
+  const toCashflow = (c: Cycle) => cashflowFor(c, data.members, data.incomes, flows, settings, data.extraIncomes)
   const lead = leadCycles.map(toCashflow)
   const all = cycles.map(toCashflow)
   const carries = projectAccounts([...lead, ...all], accounts, settings, transfers)?.slice(lead.length) ?? null
@@ -183,6 +185,13 @@ export function CashflowCard({ data, cycles, leadCycles, flows }: Props) {
             </button>
           </li>
         )}
+        {accounts.length >= 1 && (
+          <li>
+            <button className="link-btn" onClick={() => setEditingExtra({})}>
+              ＋ 臨時収入（口座への直接の入金）を記録する
+            </button>
+          </li>
+        )}
         {accounts.length === 0 && (
           <li>
             <button
@@ -291,6 +300,22 @@ export function CashflowCard({ data, cycles, leadCycles, flows }: Props) {
             </li>
           )
         })}
+        {cf.extras.map((x) => {
+          const done = settled(`extra:${x.id}`)
+          return (
+            <li key={x.id} className={`clickable ${done ? 'done' : ''}`} onClick={() => setEditingExtra(x)}>
+              <span className="date">{formatMD(x.date)}</span>
+              <span className="grow">
+                <span>
+                  臨時収入{accounts.length > 1 && ` → ${accountById.get(x.accountId)?.name ?? ''}`}
+                  {done && doneBadge}
+                </span>
+                {x.memo && <span className="muted small">{x.memo}</span>}
+              </span>
+              <span className="amount">+{yen(x.amount)}</span>
+            </li>
+          )
+        })}
         {carry ? (
           <>
             <li className="cf-sub">
@@ -351,6 +376,7 @@ export function CashflowCard({ data, cycles, leadCycles, flows }: Props) {
       {editingIncome && (
         <IncomeForm status={editingIncome} cycle={cf.cycle} onClose={() => setEditingIncome(null)} />
       )}
+      {editingExtra && <ExtraIncomeForm accounts={accounts} initial={editingExtra} onClose={() => setEditingExtra(null)} />}
       {editingTransfer && (
         <TransferForm accounts={accounts} initial={editingTransfer} onClose={() => setEditingTransfer(null)} />
       )}

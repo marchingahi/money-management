@@ -65,6 +65,17 @@ export interface PlannedExpense {
   closedOn?: YMD
 }
 
+/** 臨時収入。給料以外で、口座に直接入るお金（ボーナス・還付金・臨時の振込など） */
+export interface ExtraIncome {
+  id?: string
+  /** 入金日（予定日でも可） */
+  date: YMD
+  amount: number
+  /** 入金される口座 */
+  accountId: string
+  memo: string
+}
+
 /** 口座間の振替（家計全体のお金は増減しない） */
 export interface Transfer {
   id?: string

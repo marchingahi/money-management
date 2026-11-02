@@ -1,7 +1,7 @@
 import Dexie, { type Table } from 'dexie'
 import { convertLegacy, type DataSet, type LegacyData } from './lib/legacy'
 import { SEED_MEMBERS, SEED_METHODS, SEED_SETTINGS } from './lib/seed'
-import type { Account, PlannedExpense, Transfer, FixedCost, Income, Member, PaymentMethod, Settings, Transaction } from './lib/types'
+import type { Account, ExtraIncome, PlannedExpense, Transfer, FixedCost, Income, Member, PaymentMethod, Settings, Transaction } from './lib/types'
 
 /** 同期のためにすべてのレコードが持つ項目 */
 export interface SyncMeta {
@@ -17,7 +17,7 @@ export interface SyncMeta {
 
 type Stored<T> = T & SyncMeta & { id: string }
 
-export const TABLES = ['members', 'incomes', 'accounts', 'transfers', 'planned', 'methods', 'fixedCosts', 'transactions', 'settings'] as const
+export const TABLES = ['members', 'incomes', 'accounts', 'transfers', 'extraIncomes', 'planned', 'methods', 'fixedCosts', 'transactions', 'settings'] as const
 export type TableName = (typeof TABLES)[number]
 
 export interface Records {
@@ -25,6 +25,7 @@ export interface Records {
   incomes: Income
   accounts: Account
   transfers: Transfer
+  extraIncomes: ExtraIncome
   planned: PlannedExpense
   methods: PaymentMethod
   fixedCosts: FixedCost
@@ -132,6 +133,9 @@ db.version(3).stores({ transfers: 'id, _dirty, date' })
 // v4: 予定の出費
 db.version(4).stores({ planned: 'id, _dirty, date' })
 
+// v5: 臨時収入
+db.version(5).stores({ extraIncomes: 'id, _dirty, date' })
+
 export interface Backup extends DataSet {
   version: 2
   exportedAt: string
@@ -150,6 +154,7 @@ export async function exportBackup(): Promise<Backup> {
     incomes: strip(await db.incomes.toArray()),
     accounts: strip(await db.accounts.toArray()),
     transfers: strip(await db.transfers.toArray()),
+    extraIncomes: strip(await db.extraIncomes.toArray()),
     planned: strip(await db.planned.toArray()),
     methods: strip(await db.methods.toArray()),
     fixedCosts: strip(await db.fixedCosts.toArray()),
@@ -164,7 +169,13 @@ export function backupToDataSet(raw: unknown): DataSet {
   // 口座（accounts）がない頃の v2 バックアップにも対応
   if (data?.version === 2) {
     const b = data as Backup
-    return { ...b, accounts: b.accounts ?? [], transfers: b.transfers ?? [], planned: b.planned ?? [] }
+    return {
+      ...b,
+      accounts: b.accounts ?? [],
+      transfers: b.transfers ?? [],
+      extraIncomes: b.extraIncomes ?? [],
+      planned: b.planned ?? [],
+    }
   }
   if (data?.version === 1) return convertLegacy(raw as LegacyData).data
   throw new Error('対応していないバックアップ形式です')

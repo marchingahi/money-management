@@ -22,7 +22,7 @@ export function Home({ data, onEntry }: Props) {
   const today = todayYMD()
   const cycle = cycleOf(today, cycleRule(settings))
   const incomeCycle = budgetIncomeCycle(cycle, settings)
-  const s = summarize(cycle, today, members, incomes, fixedCosts, transactions, settings, incomeCycle, data.planned, methods)
+  const s = summarize(cycle, today, members, incomes, fixedCosts, transactions, settings, incomeCycle, data.planned, methods, data.extraIncomes)
   const cycles = [0, 1, 2].map((n) => shiftCycle(cycle, n, cycleRule(settings)))
   const flows = outflows(today, methods, transactions, fixedCosts, cycles, data.planned)
   // 口座残高の入力日が今のサイクルより前なら、そこから今のサイクルの手前まで（最大6回分）も繰越の計算に使う
@@ -94,6 +94,23 @@ export function Home({ data, onEntry }: Props) {
                   </dd>
                 </div>
               ))}
+              {s.extras.length > 0 && (
+                <>
+                  <div>
+                    <dt>臨時収入（今サイクル）</dt>
+                    <dd>+{yen(s.extraTotal)}</dd>
+                  </div>
+                  {s.extras.map((x) => (
+                    <div key={x.id} className="sub">
+                      <dt>
+                        {formatMD(x.date)}
+                        {x.memo && ` ${x.memo}`}
+                      </dt>
+                      <dd>{yen(x.amount)}</dd>
+                    </div>
+                  ))}
+                </>
+              )}
               <div>
                 <dt>固定費</dt>
                 <dd>−{yen(s.fixedTotal)}</dd>

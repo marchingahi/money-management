@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { backupToDataSet } from '../db'
-import { cashflowFor, cycleEvents, isSettled, outflows, projectAccounts } from './budget'
+import { budgetImpactFor, cashflowFor, cycleEvents, isSettled, outflows, projectAccounts, summarize } from './budget'
 import { cycleOf } from './dates'
-import type { Account, ExtraIncome, PaymentMethod, Settings, Transaction } from './types'
+import type { Account, ExtraIncome, Member, PaymentMethod, Settings, Transaction } from './types'
 
 const settings = { id: 'main', cycleStartDay: 25, savings: 0 } as Settings
 const cycle = cycleOf('2026-10-27', { startDay: 25, businessDay: true }) // 10/23〜11/24
@@ -57,5 +57,44 @@ describe('臨時収入', () => {
   it('古いバックアップ（臨時収入がない）も読める', () => {
     const data = backupToDataSet({ version: 2, exportedAt: '', members: [], incomes: [], methods: [], fixedCosts: [], transactions: [], settings: [] })
     expect(data.extraIncomes).toEqual([])
+  })
+})
+
+describe('臨時収入と予算（あと使える額）', () => {
+  const member = { id: 'p', name: '自分', payday: 25, payType: 'monthly', takeHome: 300000, hourlyWage: 0, hoursPerDay: 0, daysPerMonth: 0, deductionRate: 0 } as unknown as Member
+  const incomeCycle = cycleOf('2026-11-27', { startDay: 25, businessDay: true })
+  const run = (xs: ExtraIncome[], txs: Transaction[] = []) =>
+    summarize(cycle, '2026-10-27', [member], [], [], txs, settings, incomeCycle, [], [], xs)
+
+  it('今サイクル内の臨時収入が、予算とあと使える額に加わる', () => {
+    const s = run([extra('x1', '2026-10-30', 30000), extra('x2', '2026-11-10', 5000)])
+    expect(s.extraTotal).toBe(35000)
+    expect(s.budget).toBe(335000)
+    expect(s.remaining).toBe(335000)
+  })
+
+  it('今サイクルの外の臨時収入は加えない', () => {
+    // 10/22 は前のサイクル、11/25 は次のサイクル
+    const s = run([extra('x1', '2026-10-22', 11111), extra('x2', '2026-11-25', 22222)])
+    expect(s.extraTotal).toBe(0)
+    expect(s.remaining).toBe(300000)
+  })
+
+  it('使った額や確定済みの引落とは別に、実質あと使える額にも反映される', () => {
+    const tx: Transaction = { id: 't', date: '2026-10-25', amount: 5000, category: '食費', methodId: 'x', memo: '' }
+    const s = run([extra('x1', '2026-10-30', 30000)], [tx])
+    expect(s.remaining).toBe(300000 + 30000 - 5000)
+    expect(s.realRemaining).toBe(s.remaining) // 確定済みの引落がなければ同じ
+  })
+
+  it('臨時収入を渡さなければ従来どおり', () => {
+    expect(summarize(cycle, '2026-10-27', [member], [], [], [], settings, incomeCycle).remaining).toBe(300000)
+  })
+
+  it('取り込み前後の比較（budgetImpactFor）にも臨時収入が入る', () => {
+    const impact = (xs: ExtraIncome[]) => budgetImpactFor([], '2026-10-27', [member], [], [], [], [], [], [], settings, xs)
+    const base = impact([])
+    const withExtra = impact([extra('x1', '2026-10-30', 30000)])
+    expect(withExtra.remaining - base.remaining).toBe(30000)
   })
 })

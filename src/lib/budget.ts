@@ -31,7 +31,10 @@ export interface BudgetSummary {
   /** 予定の出費のうち、このサイクルで確保する額（予定日のサイクルでは差額の調整分も） */
   plannedTotal: number
   planned: PlannedStatus[]
-  /** 自由に使える予算 = 収入 − 固定費 − 先取り貯金 − 予定の出費の確保 */
+  /** 今サイクル中に口座へ直接入る臨時収入（入金日が今サイクル内のもの） */
+  extras: ExtraIncome[]
+  extraTotal: number
+  /** 自由に使える予算 = 収入 + 臨時収入 − 固定費 − 先取り貯金 − 予定の出費の確保 */
   budget: number
   /** 固定費以外で使った額（利用日ベース） */
   spent: number
@@ -127,9 +130,12 @@ export function summarize(
   incomeCycle: Cycle = cycle,
   plans: (PlannedExpense & { id: string })[] = [],
   methods: PaymentMethod[] = [],
+  extraIncomes: ExtraIncome[] = [],
 ): BudgetSummary {
   const incomes = incomeStatuses(members, incomeRecords, incomeCycle)
   const income = incomes.reduce((s, i) => s + i.amount, 0)
+  const extras = extraIncomes.filter((e) => inCycle(e.date, cycle)).sort((a, b) => a.date.localeCompare(b.date))
+  const extraTotal = extras.reduce((s, e) => s + e.amount, 0)
   const fixed = fixedStatuses(fixedCosts, txs, cycle)
   const otherFixed = txs.filter(
     (t) => t.fixedCostId == null && t.plannedId == null && t.category === FIXED_CATEGORY && inCycle(t.date, cycle),
@@ -137,7 +143,7 @@ export function summarize(
   const fixedTotal = fixed.reduce((s, f) => s + f.reserved, 0) + otherFixed.reduce((s, t) => s + t.amount, 0)
   const planned = plannedStatuses(plans, txs, cycle, cycleRule(settings), today)
   const plannedTotal = planned.reduce((s, p) => s + p.thisCycleTotal, 0)
-  const budget = income - fixedTotal - settings.savings - plannedTotal
+  const budget = income + extraTotal - fixedTotal - settings.savings - plannedTotal
   // 予定の出費の支払いは確保済みのお金から払うので、普段の支出には数えない
   const spent = txs
     .filter((t) => !isFixedTx(t) && t.plannedId == null && inCycle(t.date, cycle))
@@ -155,6 +161,8 @@ export function summarize(
     savings: settings.savings,
     plannedTotal,
     planned,
+    extras,
+    extraTotal,
     budget,
     spent,
     remaining,
@@ -536,7 +544,7 @@ export function budgetImpactFor(
 ): BudgetImpact {
   const cycle = cycleOf(today, cycleRule(settings))
   const incomeCycle = budgetIncomeCycle(cycle, settings)
-  const s = summarize(cycle, today, members, incomeRecords, fixedCosts, txs, settings, incomeCycle, planned, methods)
+  const s = summarize(cycle, today, members, incomeRecords, fixedCosts, txs, settings, incomeCycle, planned, methods, extraIncomes)
   const cycles = [0, 1, 2].map((n) => shiftCycle(cycle, n, cycleRule(settings)))
   const flows = outflows(today, methods, txs, fixedCosts, cycles, planned)
   const oldestBalance = accounts.flatMap((a) => (a.balance != null && a.balanceDate ? [a.balanceDate] : [])).sort()[0]

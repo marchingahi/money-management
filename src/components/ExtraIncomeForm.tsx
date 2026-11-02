@@ -47,7 +47,7 @@ export function ExtraIncomeForm({ accounts, initial, onClose }: Props) {
           </button>
         </div>
         <p className="muted small">
-          ボーナス・還付金・臨時の振込など、給料以外で口座に直接入るお金を記録します。入金された口座の残高と、その期間の「給料ごとの残り」に加わります。
+          ボーナス・還付金・臨時の振込など、給料以外で口座に直接入るお金を記録します。入金された口座の残高、その期間の「給料ごとの残り」、今サイクルの予算（あと使える額）に加わります。
         </p>
 
         <label className="amount-field">

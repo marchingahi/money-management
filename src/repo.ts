@@ -1,4 +1,5 @@
 import { asRecords, db, tableOf, TABLES, type AnyRecord, type Records, type TableName } from './db'
+import { isDemo, noticeDemo } from './demoMode'
 import type { DataSet } from './lib/legacy'
 
 /*
@@ -21,7 +22,15 @@ const touched = () => ({ _dirty: 1 as const, _modifiedAt: Date.now() })
 
 type Row<K extends TableName> = Records[K]
 
+/** デモ表示中は、実データを書き換えないように書き込みを止める */
+function blocked() {
+  if (!isDemo()) return false
+  noticeDemo()
+  return true
+}
+
 async function add<K extends TableName>(table: K, value: Row<K>): Promise<string> {
+  if (blocked()) return 'demo'
   const id = value.id ?? newId()
   await tableOf(table).put({ ...value, id, ...touched() })
   notify()
@@ -29,18 +38,21 @@ async function add<K extends TableName>(table: K, value: Row<K>): Promise<string
 }
 
 async function bulkAdd<K extends TableName>(table: K, values: Row<K>[]) {
+  if (blocked()) return
   const t = touched()
   await tableOf(table).bulkPut(asRecords(values).map((v) => ({ ...v, id: v.id ?? newId(), ...t })))
   notify()
 }
 
 async function put<K extends TableName>(table: K, value: Row<K> & { id: string }) {
+  if (blocked()) return
   const { deleted: _x, ...rest } = value as unknown as AnyRecord
   await tableOf(table).put({ ...rest, ...touched() })
   notify()
 }
 
 async function update<K extends TableName>(table: K, id: string, changes: Partial<Row<K>>) {
+  if (blocked()) return
   // undefined を渡した項目は削除される（Dexie の update の仕様）
   await tableOf(table).update(id, { ...changes, ...touched() })
   notify()
@@ -48,12 +60,14 @@ async function update<K extends TableName>(table: K, id: string, changes: Partia
 
 /** 削除も他の端末に伝えるため、中身を消して削除済みの印だけ残す */
 async function remove(table: TableName, id: string) {
+  if (blocked()) return
   await tableOf(table).put({ id, deleted: 1, ...touched() })
   notify()
 }
 
 /** データ全体を置き換える（バックアップからの復元） */
 async function replaceAll(data: DataSet) {
+  if (blocked()) return
   const t = touched()
   await db.transaction('rw', TABLES.map(tableOf), async () => {
     for (const name of TABLES) {

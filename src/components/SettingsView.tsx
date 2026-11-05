@@ -10,6 +10,7 @@ import { dayLabel, yen, type AppData } from '../useData'
 import { CardPresetSheet } from './CardPresetSheet'
 import { ImportSheet } from './ImportSheet'
 import { FixedCheckSheet } from './FixedCheckSheet'
+import { useDemo } from '../demoMode'
 import { SyncSection } from './SyncSection'
 
 /*
@@ -164,6 +165,7 @@ function AccountSelect({
 
 export function SettingsView({ data }: { data: AppData }) {
   const { settings, members, accounts, methods, fixedCosts, transactions } = data
+  const demo = useDemo()
   const [message, setMessage] = useState('')
   const [importing, setImporting] = useState(false)
   const [checkingFixed, setCheckingFixed] = useState(false)
@@ -236,7 +238,8 @@ export function SettingsView({ data }: { data: AppData }) {
 
   return (
     <div className="settings">
-      <SyncSection />
+      {/* デモ表示中は、ログイン中のメールアドレスやバックアップ（実データ）を出さない */}
+      {!demo && <SyncSection />}
       <section className="card">
         <h2>家計</h2>
         <div className="form-grid">
@@ -626,28 +629,30 @@ export function SettingsView({ data }: { data: AppData }) {
         </button>
       </section>
 
-      <section className="card">
-        <h2>データ</h2>
-        <p className="muted small">
-          データはこの端末のブラウザ内にだけ保存されています。機種変更やPCへの移行、万一に備えて定期的にバックアップしてください。
-        </p>
-        <div className="btn-row">
-          <button className="btn" onClick={download}>
-            バックアップを保存
-          </button>
-          <label className="btn">
-            バックアップから復元
-            <input type="file" accept="application/json" hidden onChange={upload} />
-          </label>
-          <button className="btn" onClick={() => setImporting(true)}>
-            Excelから取り込み
-          </button>
-          <button className="btn danger" onClick={resetAll}>
-            データを初期化
-          </button>
-        </div>
-        {message && <p className="hint">{message}</p>}
-      </section>
+      {!demo && (
+        <section className="card">
+          <h2>データ</h2>
+          <p className="muted small">
+            データはこの端末のブラウザ内にだけ保存されています。機種変更やPCへの移行、万一に備えて定期的にバックアップしてください。
+          </p>
+          <div className="btn-row">
+            <button className="btn" onClick={download}>
+              バックアップを保存
+            </button>
+            <label className="btn">
+              バックアップから復元
+              <input type="file" accept="application/json" hidden onChange={upload} />
+            </label>
+            <button className="btn" onClick={() => setImporting(true)}>
+              Excelから取り込み
+            </button>
+            <button className="btn danger" onClick={resetAll}>
+              データを初期化
+            </button>
+          </div>
+          {message && <p className="hint">{message}</p>}
+        </section>
+      )}
       {checkingFixed && <FixedCheckSheet data={data} onClose={() => setCheckingFixed(false)} />}
       {importing && <ImportSheet data={data} onClose={() => setImporting(false)} />}
     </div>

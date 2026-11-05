@@ -1,4 +1,7 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
+import { setDemo, useDemo } from './demoMode'
+import { buildDemoData } from './lib/demo'
+import { todayYMD } from './lib/dates'
 import { EntryForm } from './components/EntryForm'
 import { History } from './components/History'
 import { Home } from './components/Home'
@@ -15,7 +18,10 @@ const TABS: { id: Tab; label: string; icon: string }[] = [
 ]
 
 export default function App() {
-  const data = useData()
+  const realData = useData()
+  const demo = useDemo()
+  // デモ表示中は、実際のデータを使わず、架空のサンプルデータを表示する
+  const data = useMemo(() => (demo ? buildDemoData(todayYMD()) : realData), [demo, realData])
   const [tab, setTab] = useState<Tab>('home')
   const [entry, setEntry] = useState<Partial<Transaction> | null>(null)
 
@@ -25,7 +31,19 @@ export default function App() {
     <div className="app">
       <header className="app-header">
         <h1>{TABS.find((t) => t.id === tab)!.label}</h1>
+        <button
+          type="button"
+          className={`demo-btn ${demo ? 'on' : ''}`}
+          aria-pressed={demo}
+          onClick={() => setDemo(!demo)}
+          title="実際のデータの代わりに、架空のサンプルデータを表示します（人に見せるとき用）"
+        >
+          {demo ? 'デモ表示中 ✕' : 'デモ表示'}
+        </button>
       </header>
+      {demo && (
+        <p className="demo-banner">サンプルデータを表示しています。実際のデータは表示も変更もされません。</p>
+      )}
 
       <main className="app-main">
         {tab === 'home' && <Home data={data} onEntry={(initial) => setEntry(initial ?? {})} />}

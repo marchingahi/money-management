@@ -1,5 +1,6 @@
 import { useLiveQuery } from 'dexie-react-hooks'
 import { db, type SyncMeta } from './db'
+import { withAccountMethods } from './lib/accountMethods'
 import type { Account, ExtraIncome, PlannedExpense, Transfer, FixedCost, Income, Member, PaymentMethod, Settings, Transaction } from './lib/types'
 
 type WithId<T> = T & { id: string }
@@ -42,7 +43,11 @@ export function useData(): AppData | undefined {
       transfers: alive(transfers).sort((a, b) => a.date.localeCompare(b.date)),
       extraIncomes: alive(extraIncomes).sort((a, b) => a.date.localeCompare(b.date)),
       planned: alive(planned).sort((a, b) => a.date.localeCompare(b.date)),
-      methods: alive(methods).sort((a, b) => a.order - b.order),
+      // 口座ごとの「口座引落・振込」の支払い方法を加える（口座から直接引き落とされた・振り込んだ支出用）
+      methods: withAccountMethods(
+        alive(methods).sort((a, b) => a.order - b.order),
+        alive(accounts).sort((a, b) => a.order - b.order),
+      ),
       fixedCosts: alive(fixedCosts),
       transactions: alive(transactions),
     }

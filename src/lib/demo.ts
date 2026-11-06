@@ -1,5 +1,6 @@
 import { addDays } from 'date-fns'
 import type { AppData } from '../useData'
+import { withAccountMethods } from './accountMethods'
 import { cycleOf, cycleRule, fromYMD, shiftCycle, toYMD } from './dates'
 import {
   CATEGORIES,
@@ -145,7 +146,7 @@ export function buildDemoData(today: YMD): AppData {
     transfers: withMeta(transfers),
     extraIncomes: withMeta(extraIncomes),
     planned: withMeta(planned),
-    methods: withMeta(methods),
+    methods: withAccountMethods(withMeta(methods), withMeta(accounts)),
     fixedCosts: withMeta(fixedCosts),
     transactions: withMeta(transactions),
   }

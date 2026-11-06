@@ -164,7 +164,9 @@ function AccountSelect({
 }
 
 export function SettingsView({ data }: { data: AppData }) {
-  const { settings, members, accounts, methods, fixedCosts, transactions } = data
+  const { settings, members, accounts, fixedCosts, transactions } = data
+  // 口座から自動で用意する「口座引落・振込」は、設定には出さない
+  const methods = data.methods.filter((m) => !m.virtual)
   const demo = useDemo()
   const [message, setMessage] = useState('')
   const [importing, setImporting] = useState(false)

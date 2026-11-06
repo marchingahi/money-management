@@ -103,6 +103,8 @@ export interface PaymentMethod {
   /** 引落（支払い）口座。未設定なら最初の口座 */
   accountId?: string
   order: number
+  /** 口座から自動で用意する「口座引落・振込」の支払い方法（保存しない。設定には出さない） */
+  virtual?: boolean
 }
 
 export interface FixedCost {

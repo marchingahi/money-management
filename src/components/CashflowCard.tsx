@@ -17,7 +17,7 @@ import type { Account, ExtraIncome, PaymentMethod, Transfer, YMD } from '../lib/
 import { yen, type AppData } from '../useData'
 import { BalanceForm } from './BalanceForm'
 import { IncomeForm } from './IncomeForm'
-import { ExtraIncomeForm } from './ExtraIncomeForm'
+import { AccountMoveForm } from './AccountMoveForm'
 import { TransferForm } from './TransferForm'
 
 interface Props {
@@ -188,7 +188,7 @@ export function CashflowCard({ data, cycles, leadCycles, flows }: Props) {
         {accounts.length >= 1 && (
           <li>
             <button className="link-btn" onClick={() => setEditingExtra({})}>
-              ＋ 臨時収入（口座への直接の入金）を記録する
+              ＋ 口座の入出金（引落・振込・入金）を記録する
             </button>
           </li>
         )}
@@ -376,7 +376,14 @@ export function CashflowCard({ data, cycles, leadCycles, flows }: Props) {
       {editingIncome && (
         <IncomeForm status={editingIncome} cycle={cf.cycle} onClose={() => setEditingIncome(null)} />
       )}
-      {editingExtra && <ExtraIncomeForm accounts={accounts} initial={editingExtra} onClose={() => setEditingExtra(null)} />}
+      {editingExtra && (
+        <AccountMoveForm
+          accounts={accounts}
+          fixedCosts={data.fixedCosts}
+          initial={editingExtra}
+          onClose={() => setEditingExtra(null)}
+        />
+      )}
       {editingTransfer && (
         <TransferForm accounts={accounts} initial={editingTransfer} onClose={() => setEditingTransfer(null)} />
       )}

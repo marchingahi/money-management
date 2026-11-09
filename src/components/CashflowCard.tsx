@@ -17,6 +17,7 @@ import type { Account, ExtraIncome, PaymentMethod, Transfer, YMD } from '../lib/
 import { yen, type AppData } from '../useData'
 import { BalanceForm } from './BalanceForm'
 import { IncomeForm } from './IncomeForm'
+import { isBonusEstimate } from '../lib/bonus'
 import { AccountMoveForm } from './AccountMoveForm'
 import { TransferForm } from './TransferForm'
 
@@ -302,15 +303,25 @@ export function CashflowCard({ data, cycles, leadCycles, flows }: Props) {
         })}
         {cf.extras.map((x) => {
           const done = settled(`extra:${x.id}`)
+          const estimate = isBonusEstimate(x)
+          // 入金先の口座（賞与の見込みで口座が未設定なら、最初の口座）
+          const toAccount = accountById.get(x.accountId) ?? accounts[0]
           return (
-            <li key={x.id} className={`clickable ${done ? 'done' : ''}`} onClick={() => setEditingExtra(x)}>
+            <li
+              key={x.id}
+              className={`clickable ${done ? 'done' : ''}`}
+              // 賞与の見込み額は、実額を入力する新規の入金として開く
+              onClick={accounts.length > 0 ? () => setEditingExtra(estimate ? { ...x, id: undefined } : x) : undefined}
+            >
               <span className="date">{formatMD(x.date)}</span>
               <span className="grow">
                 <span>
-                  臨時収入{accounts.length > 1 && ` → ${accountById.get(x.accountId)?.name ?? ''}`}
+                  {x.bonusKey ? x.memo : '臨時収入'}
+                  {x.bonusKey && <span className={`badge ${estimate ? 'est' : 'ok'}`}>{estimate ? '見込み' : '実額'}</span>}
+                  {accounts.length > 1 && toAccount && ` → ${toAccount.name}`}
                   {done && doneBadge}
                 </span>
-                {x.memo && <span className="muted small">{x.memo}</span>}
+                {!x.bonusKey && x.memo && <span className="muted small">{x.memo}</span>}
               </span>
               <span className="amount">+{yen(x.amount)}</span>
             </li>

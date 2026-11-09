@@ -17,8 +17,22 @@ export interface Member {
   daysPerMonth: number
   /** 税・社会保険などの控除率（%） */
   deductionRate: number
-  /** 給料の振込口座 */
+  /** 給料の振込口座（賞与の入金先にも使う） */
   accountId?: string
+  /** 賞与（ボーナス）の設定。毎年、設定した月日に見込み額が入るものとして計算する */
+  bonuses?: Bonus[]
+}
+
+/** 賞与の設定 1 件（夏のボーナス・冬のボーナスなど） */
+export interface Bonus {
+  id: string
+  name: string
+  /** 支給月（1〜12） */
+  month: number
+  /** 支給日（1〜31、31 は月末）。休業日なら前の営業日に前倒しで入る */
+  day: number
+  /** 見込み額（手取り）。実際の額が分かったら、実額を入力して置き換える */
+  amount: number
 }
 
 /** 銀行口座。残高を入れた口座だけ繰越を計算する */
@@ -68,6 +82,8 @@ export interface PlannedExpense {
 /** 臨時収入。給料以外で、口座に直接入るお金（ボーナス・還付金・臨時の振込など） */
 export interface ExtraIncome {
   id?: string
+  /** 賞与の実額として入力した場合の、賞与の設定との紐付け（`bonusKey` を参照）。見込み額の代わりにこの金額で数える */
+  bonusKey?: string
   /** 入金日（予定日でも可） */
   date: YMD
   amount: number
@@ -150,6 +166,8 @@ export interface Settings {
   cycleStartOverrides?: Record<string, number>
   /** 開始日（給料日）が土日・祝日などの休業日なら前の営業日にする。未設定は true */
   cycleStartBusinessDay?: boolean
+  /** 賞与を、入金日のサイクルの予算（あと使える額）にも含める。未設定は含めない（口座残高と給料ごとの残りだけに反映） */
+  bonusInBudget?: boolean
   /** ホームの「給料ごとの残り」で最初に開く給料。未設定は今回の給料 */
   cashflowInitial?: 'current' | 'next'
   /** 先取り貯金額 */

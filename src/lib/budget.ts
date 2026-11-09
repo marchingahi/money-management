@@ -1,4 +1,5 @@
 import { billingOf } from './billing'
+import { bonusEstimatesFor } from './bonus'
 import { plannedStatuses, remainingOf, type PlannedStatus } from './planned'
 import { cycleOf, cycleRule, daysBetween, dayWithinCycle, fromYMD, nextBusinessDay, shiftCycle, toYMD, type Cycle } from './dates'
 import { FIXED_CATEGORY, type Account, type ExtraIncome, type PlannedExpense, type Transfer, type FixedCost, type Income, type Member, type PaymentMethod, type Settings, type Transaction, type YMD } from './types'
@@ -134,7 +135,11 @@ export function summarize(
 ): BudgetSummary {
   const incomes = incomeStatuses(members, incomeRecords, incomeCycle)
   const income = incomes.reduce((s, i) => s + i.amount, 0)
-  const extras = extraIncomes.filter((e) => inCycle(e.date, cycle)).sort((a, b) => a.date.localeCompare(b.date))
+  // 賞与は、設定で選んだときだけ予算（あと使える額）に含める。選ばなければ口座残高と給料ごとの残りだけに反映する
+  const inThisCycle = [...extraIncomes.filter((e) => inCycle(e.date, cycle)), ...bonusEstimatesFor(cycle, members, extraIncomes)]
+  const extras = (settings.bonusInBudget ? inThisCycle : inThisCycle.filter((e) => e.bonusKey == null)).sort((a, b) =>
+    a.date.localeCompare(b.date),
+  )
   const extraTotal = extras.reduce((s, e) => s + e.amount, 0)
   const fixed = fixedStatuses(fixedCosts, txs, cycle)
   const otherFixed = txs.filter(
@@ -319,7 +324,10 @@ export function cashflowFor(
   extraIncomes: ExtraIncome[] = [],
 ): CycleCashflow {
   const incomes = incomeStatuses(members, incomeRecords, cycle)
-  const extras = extraIncomes.filter((e) => inCycle(e.date, cycle)).sort((a, b) => a.date.localeCompare(b.date))
+  // 設定した賞与のうち、実額が未入力のものは、見込み額で数える（入金先はその人の振込口座）
+  const extras = [...extraIncomes.filter((e) => inCycle(e.date, cycle)), ...bonusEstimatesFor(cycle, members, extraIncomes)].sort(
+    (a, b) => a.date.localeCompare(b.date),
+  )
   const extraTotal = extras.reduce((s, e) => s + e.amount, 0)
   const income = incomes.reduce((s, i) => s + i.amount, 0)
   const inRange = flows.filter((o) => inCycle(o.paymentDate, cycle))
@@ -406,7 +414,12 @@ export function cycleEvents(
   }
   for (const x of cf.extras) {
     push(
-      { key: `extra:${x.id}`, date: x.date, amount: x.amount, label: x.memo ? `臨時収入（${x.memo}）` : '臨時収入' },
+      {
+        key: `extra:${x.id}`,
+        date: x.date,
+        amount: x.amount,
+        label: x.bonusKey ? x.memo : x.memo ? `臨時収入（${x.memo}）` : '臨時収入',
+      },
       x.accountId,
     )
   }

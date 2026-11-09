@@ -5,7 +5,7 @@ import { newMember, seedDataSet } from '../lib/seed'
 import { repo } from '../repo'
 import { expectedTakeHome, NO_ACCOUNT } from '../lib/budget'
 import { cycleInMonth, cycleRule, formatMD, todayYMD } from '../lib/dates'
-import { KIND_LABEL, type Account, type MethodKind, type PayType } from '../lib/types'
+import { KIND_LABEL, type Account, type Bonus, type MethodKind, type PayType } from '../lib/types'
 import { dayLabel, yen, type AppData } from '../useData'
 import { CardPresetSheet } from './CardPresetSheet'
 import { ImportSheet } from './ImportSheet'
@@ -134,6 +134,62 @@ function CycleOverrides({ settings }: { settings: AppData['settings'] }) {
       >
         ＋ 月を追加
       </button>
+    </div>
+  )
+}
+
+/** 賞与（ボーナス）の設定。毎年、設定した月日に見込み額が入るものとして計算する */
+function BonusSettings({ bonuses, onChange }: { bonuses: Bonus[]; onChange: (next: Bonus[]) => void }) {
+  const patch = (id: string, changes: Partial<Bonus>) =>
+    onChange(bonuses.map((b) => (b.id === id ? { ...b, ...changes } : b)))
+  const add = (name: string, month: number) =>
+    onChange([...bonuses, { id: crypto.randomUUID(), name, month, day: 10, amount: 0 }])
+  return (
+    <div className="bonus-settings">
+      <span className="field-label">賞与（ボーナス）</span>
+      {bonuses.length === 0 && (
+        <p className="muted small">
+          設定すると、毎年その月日に見込み額が入るものとして、「給料ごとの残り」と口座の繰越に加わります。実際の額が分かったら、ホーム画面でその賞与をタップして実額を入力してください。
+        </p>
+      )}
+      {bonuses.map((b) => (
+        <div key={b.id} className="form-grid">
+          <label>
+            名前
+            <TextInput value={b.name} onCommit={(v) => patch(b.id, { name: v })} />
+          </label>
+          <label>
+            支給月
+            <select value={b.month} onChange={(e) => patch(b.id, { month: Number(e.target.value) })}>
+              {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => (
+                <option key={m} value={m}>
+                  {m}月
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            支給日
+            <DaySelect value={b.day} onChange={(v) => patch(b.id, { day: v })} />
+          </label>
+          <label>
+            見込み額（手取り）
+            <NumInput value={b.amount} onCommit={(v) => patch(b.id, { amount: v })} />
+          </label>
+          <button className="link-btn danger" onClick={() => confirm('この賞与の設定を削除しますか？') && onChange(bonuses.filter((x) => x.id !== b.id))}>
+            削除
+          </button>
+        </div>
+      ))}
+      <div className="btn-row">
+        <button className="btn" onClick={() => add('夏の賞与', 6)}>
+          ＋ 夏の賞与
+        </button>
+        <button className="btn" onClick={() => add('冬の賞与', 12)}>
+          ＋ 冬の賞与
+        </button>
+      </div>
+      {bonuses.length > 0 && <p className="muted small">支給日が休みの場合は、前の営業日に入るものとして計算します。</p>}
     </div>
   )
 }
@@ -301,6 +357,17 @@ export function SettingsView({ data }: { data: AppData }) {
         </label>
         <p className="muted small">給料日が休みの場合は前倒しで振り込まれるため、サイクルもその日から始めます。下の「月ごとの個別指定」はこの調整をせず、指定した日のまま使います。</p>
         <CycleOverrides settings={settings} />
+        <label className="check">
+          <input
+            type="checkbox"
+            checked={settings.bonusInBudget === true}
+            onChange={(e) => repo.update('settings', 'main', { bonusInBudget: e.target.checked })}
+          />
+          <span>賞与を今サイクルの予算（あと使える額）にも含める</span>
+        </label>
+        <p className="muted small">
+          オフ（既定）のときは、賞与は口座の残高と「給料ごとの残り」にだけ反映し、毎月使える額は増やしません。
+        </p>
       </section>
 
       <section className="card">
@@ -432,6 +499,10 @@ export function SettingsView({ data }: { data: AppData }) {
                 {m.daysPerMonth}日 − 控除{m.deductionRate}%）
               </p>
             )}
+            <BonusSettings
+              bonuses={m.bonuses ?? []}
+              onChange={(next) => repo.update('members', m.id, { bonuses: next.length ? next : undefined })}
+            />
             {members.length > 1 && (
               <button
                 className="link-btn danger"

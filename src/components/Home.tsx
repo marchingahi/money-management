@@ -97,7 +97,7 @@ export function Home({ data, onEntry }: Props) {
               {s.extras.length > 0 && (
                 <>
                   <div>
-                    <dt>臨時収入（今サイクル）</dt>
+                    <dt>{s.extras.some((x) => x.bonusKey) ? '臨時収入・賞与（今サイクル）' : '臨時収入（今サイクル）'}</dt>
                     <dd>+{yen(s.extraTotal)}</dd>
                   </div>
                   {s.extras.map((x) => (

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { billingOf } from './billing'
 import { summarize } from './budget'
 import { cycleOf } from './dates'
+import { withAccountMethods } from './accountMethods'
 import { guessMethod, parseSheet, planImport, toDate, toPaymentMonth } from './excelImport'
 import type { PaymentMethod } from './types'
 
@@ -116,7 +117,7 @@ describe('parseSheet / planImport', () => {
 
     const existing = plan.transactions.map((t, i) => ({ ...t, id: `t${i}` }))
     const again = planImport(rows, mapping, methods, existing)
-    expect(again).toEqual({ transactions: [], reconciled: [], duplicates: 5, paymentMonthUpdates: [] })
+    expect(again).toEqual({ transactions: [], reconciled: [], duplicates: 5, paymentMonthUpdates: [], methodUpdates: [] })
   })
 
   it('ファイルの支払月は、計算結果と一致していても保存する（クレジットのみ）', () => {
@@ -171,5 +172,49 @@ describe('parseSheet / planImport', () => {
     })
     expect(s.fixedTotal).toBe(80000)
     expect(s.spent).toBe(1936)
+  })
+})
+
+describe('口座引落・振込の支払い方法は、取り込みの対応付けに使わない', () => {
+  // 口座名が「AEON」、カードが「イオン」。口座から自動で用意する「AEON（口座引落・振込）」が候補に混ざらないこと
+  const accounts = [{ id: 'bank', name: 'AEON', order: 1 }]
+  const all = withAccountMethods(methods as (PaymentMethod & { id: string })[], accounts)
+
+  it('Excel の支払方法「AEON」は、カード「イオン」に対応付ける', () => {
+    expect(all.some((m) => m.id === 'acct:bank')).toBe(true)
+    expect(guessMethod('AEON', all)).toBe('8')
+    expect(guessMethod('イオンカード', all)).toBe('8')
+    // 口座名そのものでも、口座引落・振込には対応付けない
+    expect(guessMethod('AEON（口座引落・振込）', all)).not.toBe('acct:bank')
+  })
+
+  it('取り込む支出も、口座引落・振込の支払い方法にはならない', () => {
+    const rows = parseSheet([
+      ['日付', '支払月', '支払方法', '金額'],
+      [APR5, 5, 'AEON', 684],
+    ]).rows
+    const mapping = { AEON: guessMethod('AEON', all) }
+    const plan = planImport(rows, mapping, all, [])
+    expect(plan.transactions.map((t) => [t.methodId, t.amount])).toEqual([['8', 684]])
+  })
+
+  it('以前の取り込みで誤って口座引落・振込になった支出は、再取り込みでカードに直す', () => {
+    const rows = parseSheet([
+      ['日付', '支払月', '支払方法', '金額'],
+      [APR5, 5, 'AEON', 684],
+      [APR5, 5, 'AEON', 1000],
+    ]).rows
+    const mapping = { AEON: '8' }
+    const first = planImport(rows, mapping, all, []).transactions
+    // 1 件目は誤って口座引落・振込に、2 件目は自分で別のカード（セゾン）に変えた状態にする
+    const existing = [
+      { ...first[0], id: 't0', methodId: 'acct:bank', paymentMonth: undefined },
+      { ...first[1], id: 't1', methodId: '3' },
+    ]
+    const again = planImport(rows, mapping, all, existing)
+    expect(again.duplicates).toBe(2)
+    expect(again.methodUpdates).toEqual([{ id: 't0', methodId: '8' }]) // 自分で変えた 2 件目は触らない
+    // 支払月（クレジットの引落月）も、カードに直すのに合わせてファイルの値になる
+    expect(again.paymentMonthUpdates.map((u) => u.id)).toContain('t0')
   })
 })

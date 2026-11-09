@@ -33,6 +33,8 @@ async function readWorkbook(file: File): Promise<ParseResult> {
 }
 
 export function ImportSheet({ data, onClose }: Props) {
+  // 取り込み先の候補。口座から自動で用意する「口座引落・振込」は含めない（クレジット利用表の支払方法とは別物）
+  const importMethods = useMemo(() => data.methods.filter((m) => !m.virtual), [data.methods])
   const [parsed, setParsed] = useState<ParseResult | null>(null)
   const [mapping, setMapping] = useState<Record<string, string | undefined>>({})
   const [error, setError] = useState('')
@@ -50,7 +52,7 @@ export function ImportSheet({ data, onClose }: Props) {
     try {
       const result = await readWorkbook(file)
       const names = [...new Set(result.rows.map((r) => r.methodName))]
-      setMapping(Object.fromEntries(names.map((n) => [n, guessMethod(n, data.methods)])))
+      setMapping(Object.fromEntries(names.map((n) => [n, guessMethod(n, importMethods)])))
       setParsed(result)
     } catch (err) {
       setParsed(null)
@@ -62,8 +64,8 @@ export function ImportSheet({ data, onClose }: Props) {
 
   const plan = useMemo(() => {
     if (!parsed) return null
-    return planImport(parsed.rows, mapping, data.methods, data.transactions)
-  }, [parsed, mapping, data.methods, data.transactions])
+    return planImport(parsed.rows, mapping, importMethods, data.transactions)
+  }, [parsed, mapping, importMethods, data.transactions])
 
   // 前月・前々月と同額の支払いは、固定費にするか確認する
   const candidates = useMemo(() => {
@@ -77,6 +79,12 @@ export function ImportSheet({ data, onClose }: Props) {
   const [unchecked, setUnchecked] = useState<Set<string>>(new Set())
   const selected = useMemo(() => new Set(candidates.filter((c) => !unchecked.has(c.key)).map((c) => c.key)), [candidates, unchecked])
 
+  // 取り込み済みのうち更新する支出の件数（支払月と支払い方法の両方を直す支出は 1 件と数える）
+  const updateCount = useMemo(
+    () => new Set([...(plan?.paymentMonthUpdates ?? []).map((u) => u.id), ...(plan?.methodUpdates ?? []).map((u) => u.id)]).size,
+    [plan],
+  )
+
   const methodCounts = useMemo(() => {
     const counts = new Map<string, number>()
     for (const r of parsed?.rows ?? []) counts.set(r.methodName, (counts.get(r.methodName) ?? 0) + 1)
@@ -87,10 +95,11 @@ export function ImportSheet({ data, onClose }: Props) {
   const dates = parsed?.rows.map((r) => r.date).sort() ?? []
 
   const impact = useMemo(() => {
-    if (!plan?.transactions.length && !plan?.paymentMonthUpdates.length) return null
+    if (!plan?.transactions.length && updateCount === 0) return null
     const toFixed = new Set(candidates.filter((c) => selected.has(c.key)).flatMap((c) => c.txs))
     const adjusted = (plan?.transactions ?? []).map((t) => (toFixed.has(t) ? { ...t, category: FIXED_CATEGORY } : t))
     const months = new Map((plan?.paymentMonthUpdates ?? []).map((u) => [u.id, u.paymentMonth]))
+    const fixedMethods = new Map((plan?.methodUpdates ?? []).map((u) => [u.id, u.methodId]))
     const today = todayYMD()
     const args = [
       today,
@@ -106,14 +115,14 @@ export function ImportSheet({ data, onClose }: Props) {
     ] as const
     return {
       before: budgetImpactFor(data.transactions, ...args),
-      after: budgetImpactFor([...data.transactions.map((t) => (months.has(t.id) ? { ...t, paymentMonth: months.get(t.id) } : t)), ...adjusted], ...args),
+      after: budgetImpactFor([...data.transactions.map((t) => (months.has(t.id) || fixedMethods.has(t.id) ? { ...t, ...(months.has(t.id) && { paymentMonth: months.get(t.id) }), ...(fixedMethods.has(t.id) && { methodId: fixedMethods.get(t.id)! }) } : t)), ...adjusted], ...args),
     }
-  }, [plan, data, candidates, selected])
+  }, [plan, data, candidates, selected, updateCount])
 
   const shownImpact = committedImpact ?? impact
 
   const run = async () => {
-    if (!plan || (plan.transactions.length === 0 && plan.reconciled.length === 0 && plan.paymentMonthUpdates.length === 0)) return
+    if (!plan || (plan.transactions.length === 0 && plan.reconciled.length === 0 && updateCount === 0)) return
     setBusy(true)
     try {
       const chosen = candidates.filter((c) => selected.has(c.key))
@@ -133,11 +142,14 @@ export function ImportSheet({ data, onClose }: Props) {
         if (!existing) continue
         await repo.put('transactions', { ...existing, importKey: u.importKey, ...(u.paymentMonth && { paymentMonth: u.paymentMonth }) })
       }
+      for (const u of plan.methodUpdates) {
+        await repo.update('transactions', u.id, { methodId: u.methodId })
+      }
       for (const u of plan.paymentMonthUpdates) {
         await repo.update('transactions', u.id, { paymentMonth: u.paymentMonth })
       }
       setCommittedImpact(impact)
-      setDone(plan.transactions.length + plan.reconciled.length + plan.paymentMonthUpdates.length)
+      setDone(plan.transactions.length + plan.reconciled.length + updateCount)
     } finally {
       setBusy(false)
     }
@@ -196,7 +208,7 @@ export function ImportSheet({ data, onClose }: Props) {
                       }
                     >
                       <option value="">取り込まない</option>
-                      {data.methods.map((m) => (
+                      {importMethods.map((m) => (
                         <option key={m.id} value={m.id}>
                           {m.name}
                         </option>
@@ -236,6 +248,12 @@ export function ImportSheet({ data, onClose }: Props) {
                 <div>
                   <dt>取り込み済みのうち支払月をファイルに合わせる</dt>
                   <dd>{plan.paymentMonthUpdates.length}件</dd>
+                </div>
+              )}
+              {plan.methodUpdates.length > 0 && (
+                <div>
+                  <dt>取り込み済みのうち、誤って「口座引落・振込」になっていた支払い方法を直す</dt>
+                  <dd>{plan.methodUpdates.length}件</dd>
                 </div>
               )}
               {unmappedRows > 0 && (
@@ -285,10 +303,10 @@ export function ImportSheet({ data, onClose }: Props) {
               <div className="sheet-actions">
                 <button
                   className="btn primary"
-                  disabled={busy || (plan.transactions.length === 0 && plan.reconciled.length === 0 && plan.paymentMonthUpdates.length === 0)}
+                  disabled={busy || (plan.transactions.length === 0 && plan.reconciled.length === 0 && updateCount === 0)}
                   onClick={run}
                 >
-                  {plan.transactions.length + plan.reconciled.length + plan.paymentMonthUpdates.length}件を取り込む
+                  {plan.transactions.length + plan.reconciled.length + updateCount}件を取り込む
                 </button>
               </div>
             )}

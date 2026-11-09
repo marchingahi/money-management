@@ -1,3 +1,4 @@
+import { isAccountMethodId } from './accountMethods'
 import { FIXED_CATEGORY, type PaymentMethod, type Transaction, type YMD } from './types'
 
 /**
@@ -142,7 +143,9 @@ const key = (s: string) =>
     .replace(/カード|card|\s/g, '')
 
 /** Excel の支払方法名に対応するアプリの支払い方法を推測する */
-export function guessMethod(excelName: string, methods: PaymentMethod[]): string | undefined {
+export function guessMethod(excelName: string, allMethods: PaymentMethod[]): string | undefined {
+  // 口座から自動で用意する「口座引落・振込」は、クレジット利用表の支払方法とは別物なので対応付けの候補にしない
+  const methods = allMethods.filter((m) => !m.virtual)
   const k = key(excelName)
   const exact = methods.find((m) => key(m.name) === k)
   if (exact) return exact.id
@@ -172,6 +175,8 @@ export interface ImportPlan {
   duplicates: number
   /** 取り込み済みの支出のうち、ファイルの支払月と違っている（または未保存の）ため更新する分 */
   paymentMonthUpdates: { id: string; paymentMonth: string }[]
+  /** 取り込み済みの支出のうち、「口座引落・振込」に誤って対応付けられていたため、支払い方法を直す分 */
+  methodUpdates: { id: string; methodId: string }[]
 }
 
 /**
@@ -184,9 +189,10 @@ export interface ImportPlan {
 export function planImport(
   rows: ExcelRow[],
   mapping: Record<string, string | undefined>,
-  methods: PaymentMethod[],
+  allMethods: PaymentMethod[],
   existingTxs: (Transaction & { id: string })[],
 ): ImportPlan {
+  const methods = allMethods.filter((m) => !m.virtual)
   const existingKeys = new Set(existingTxs.flatMap((t) => (t.importKey ? [t.importKey] : [])))
   const looseByKey = new Map<string, string[]>()
   for (const t of existingTxs) {
@@ -197,7 +203,7 @@ export function planImport(
 
   const seen = new Map<string, number>()
   const byKey = new Map(existingTxs.flatMap((t) => (t.importKey ? [[t.importKey, t] as const] : [])))
-  const plan: ImportPlan = { transactions: [], reconciled: [], duplicates: 0, paymentMonthUpdates: [] }
+  const plan: ImportPlan = { transactions: [], reconciled: [], duplicates: 0, paymentMonthUpdates: [], methodUpdates: [] }
   for (const r of rows) {
     const methodId = mapping[r.methodName]
     const method = methods.find((m) => m.id === methodId)
@@ -214,6 +220,11 @@ export function planImport(
       const existing = byKey.get(importKey)
       if (existing && paymentMonth && existing.paymentMonth !== paymentMonth) {
         plan.paymentMonthUpdates.push({ id: existing.id, paymentMonth })
+      }
+      // 以前の取り込みで「口座引落・振込」に誤って対応付けられた支出は、今回の対応付けのカードに直す
+      // （画面で自分で変えた支払い方法は、そのままにする）
+      if (existing && isAccountMethodId(existing.methodId) && existing.methodId !== method.id) {
+        plan.methodUpdates.push({ id: existing.id, methodId: method.id! })
       }
       continue
     }

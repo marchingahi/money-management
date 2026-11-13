@@ -236,3 +236,6 @@ input[type="checkbox"] { width: 20px; height: 20px; padding: 0; flex-shrink: 0; 
 .demo-btn { font-size: 12px; padding: 4px 10px; border: 1px solid var(--border); border-radius: 999px; background: var(--surface); color: var(--muted); cursor: pointer; }
 .demo-btn.on { background: var(--warn-soft); color: var(--warn-text); border-color: transparent; font-weight: 700; }
 .demo-banner { margin: 0 16px 8px; padding: 8px 10px; border-radius: 8px; background: var(--warn-soft); color: var(--warn-text); font-size: 12px; }
+
+/* 口座の繰越の合計（使える金額） */
+.list li.cf-opening-total { border-top: 1px solid var(--text); font-weight: 700; }

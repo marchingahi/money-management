@@ -171,6 +171,15 @@ export function CashflowCard({ data, cycles, leadCycles, flows }: Props) {
             )}
           </li>
         ))}
+        {carry && carry.accounts.length > 1 && (
+          <li className="cf-opening-total">
+            <span className="grow">
+              使える金額（口座の合計）
+              {untracked.length > 0 && <span className="muted small">残高未入力の口座は含みません</span>}
+            </span>
+            <span className={`amount ${carry.opening < 0 ? 'neg' : ''}`}>{yen(carry.opening)}</span>
+          </li>
+        )}
         {untracked.map((a) => (
           <li key={a.id}>
             <span className="grow muted">{a.name}（残高未入力）</span>

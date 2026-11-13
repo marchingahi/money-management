@@ -331,6 +331,9 @@ export function CashflowCard({ data, cycles, leadCycles, flows }: Props) {
                   {done && doneBadge}
                 </span>
                 {!x.bonusKey && x.memo && <span className="muted small">{x.memo}</span>}
+                {x.bonusKey && x.date < cf.cycle.start && (
+                  <span className="muted small">給料日までに入金済み。この期間の支払いに使えます</span>
+                )}
               </span>
               <span className="amount">+{yen(x.amount)}</span>
             </li>

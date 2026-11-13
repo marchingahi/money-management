@@ -1,5 +1,5 @@
 import { billingOf } from './billing'
-import { bonusEstimatesFor } from './bonus'
+import { bonusEstimatesFor, fundsCycle } from './bonus'
 import { plannedStatuses, remainingOf, type PlannedStatus } from './planned'
 import { cycleOf, cycleRule, daysBetween, dayWithinCycle, fromYMD, nextBusinessDay, shiftCycle, toYMD, type Cycle } from './dates'
 import { FIXED_CATEGORY, type Account, type ExtraIncome, type PlannedExpense, type Transfer, type FixedCost, type Income, type Member, type PaymentMethod, type Settings, type Transaction, type YMD } from './types'
@@ -136,7 +136,11 @@ export function summarize(
   const incomes = incomeStatuses(members, incomeRecords, incomeCycle)
   const income = incomes.reduce((s, i) => s + i.amount, 0)
   // 賞与は、設定で選んだときだけ予算（あと使える額）に含める。選ばなければ口座残高と給料ごとの残りだけに反映する
-  const inThisCycle = [...extraIncomes.filter((e) => inCycle(e.date, cycle)), ...bonusEstimatesFor(cycle, members, extraIncomes)]
+  const rule = cycleRule(settings)
+  const inThisCycle = [
+    ...extraIncomes.filter((e) => (e.bonusKey ? fundsCycle(e.date, cycle, rule) : inCycle(e.date, cycle))),
+    ...bonusEstimatesFor(cycle, members, extraIncomes, rule),
+  ]
   const extras = (settings.bonusInBudget ? inThisCycle : inThisCycle.filter((e) => e.bonusKey == null)).sort((a, b) =>
     a.date.localeCompare(b.date),
   )
@@ -325,9 +329,12 @@ export function cashflowFor(
 ): CycleCashflow {
   const incomes = incomeStatuses(members, incomeRecords, cycle)
   // 設定した賞与のうち、実額が未入力のものは、見込み額で数える（入金先はその人の振込口座）
-  const extras = [...extraIncomes.filter((e) => inCycle(e.date, cycle)), ...bonusEstimatesFor(cycle, members, extraIncomes)].sort(
-    (a, b) => a.date.localeCompare(b.date),
-  )
+  // 賞与は、入金後に最初に来る給料日から始まるサイクルの収入にする（bonusFundingStart）
+  const rule = cycleRule(settings)
+  const extras = [
+    ...extraIncomes.filter((e) => (e.bonusKey ? fundsCycle(e.date, cycle, rule) : inCycle(e.date, cycle))),
+    ...bonusEstimatesFor(cycle, members, extraIncomes, rule),
+  ].sort((a, b) => a.date.localeCompare(b.date))
   const extraTotal = extras.reduce((s, e) => s + e.amount, 0)
   const income = incomes.reduce((s, i) => s + i.amount, 0)
   const inRange = flows.filter((o) => inCycle(o.paymentDate, cycle))
@@ -369,6 +376,8 @@ export interface AccountEvent {
   /** 残高入力日当日の予定を「未反映」として指定するためのキー */
   key: string
   date: YMD
+  /** 口座に実際にお金が動いた日。残高に反映済みかの判定に使う（date と違うのは、賞与を次のサイクルの収入にするとき） */
+  settleDate?: YMD
   /** 入金はプラス、出金はマイナス */
   amount: number
   accountId: string
@@ -416,7 +425,9 @@ export function cycleEvents(
     push(
       {
         key: `extra:${x.id}`,
-        date: x.date,
+        // 賞与は、使えるのが次の給料日からなので、そのサイクルの開始日の入金として数える（実際の入金日は settleDate）
+        date: x.bonusKey ? cf.cycle.start : x.date,
+        ...(x.bonusKey && { settleDate: x.date }),
         amount: x.amount,
         label: x.bonusKey ? x.memo : x.memo ? `臨時収入（${x.memo}）` : '臨時収入',
       },
@@ -454,8 +465,10 @@ export function cycleEvents(
 /** 予定が口座残高にすでに反映されているか（残高入力日より前、または当日で未反映に指定されていない） */
 export function isSettled(e: AccountEvent, account: Account): boolean {
   if (!account.balanceDate) return false
-  if (e.date < account.balanceDate) return true
-  return e.date === account.balanceDate && !(account.unsettled ?? []).includes(e.key)
+  // 実際にお金が動いた日で判定する（賞与は、残高を入力した時点ですでに入金済みなら、残高に含まれている）
+  const date = e.settleDate ?? e.date
+  if (date < account.balanceDate) return true
+  return date === account.balanceDate && !(account.unsettled ?? []).includes(e.key)
 }
 
 export interface AccountCarry {

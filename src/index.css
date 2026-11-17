@@ -239,3 +239,20 @@ input[type="checkbox"] { width: 20px; height: 20px; padding: 0; flex-shrink: 0; 
 
 /* 口座の繰越の合計（使える金額） */
 .list li.cf-opening-total { border-top: 1px solid var(--text); font-weight: 700; }
+
+/* 今後12回の給料の見通し */
+.outlook-total { margin: 6px 0 10px; font-size: 14px; }
+.outlook-total .muted { margin-left: 6px; }
+.outlook-scroll { overflow-x: auto; margin: 0 -4px; padding: 0 4px; }
+.outlook { width: 100%; border-collapse: collapse; font-size: 11px; font-variant-numeric: tabular-nums; }
+.outlook th, .outlook td { padding: 6px 3px; text-align: right; white-space: nowrap; border-top: 1px solid var(--border); vertical-align: top; }
+.outlook thead th { color: var(--muted); font-weight: 400; border-top: none; }
+.outlook tbody th, .outlook tfoot th { text-align: left; font-weight: 600; }
+.outlook tr.now { background: var(--warn-soft); }
+.outlook tfoot th, .outlook tfoot td { border-top: 2px solid var(--text); font-weight: 700; }
+.outlook .badge { margin-left: 4px; }
+.outlook-sub { display: block; font-size: 10px; color: var(--muted); }
+.badge.neg-badge { color: var(--neg); background: var(--warn-soft); }
+.outlook td.neg { color: var(--neg); }
+.outlook-unit { text-align: right; margin: 0 0 2px; }
+.outlook .badge { display: inline-block; margin: 2px 0 0 4px; }

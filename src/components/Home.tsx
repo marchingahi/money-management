@@ -7,6 +7,7 @@ import { CardTimingCard } from './CardTimingCard'
 import { Collapsible } from './Collapsible'
 import { useOpen } from './useOpen'
 import { CashflowCard } from './CashflowCard'
+import { OutlookCard } from './OutlookCard'
 import { PlannedCard } from './PlannedCard'
 import { IncomeForm } from './IncomeForm'
 
@@ -158,6 +159,7 @@ export function Home({ data, onEntry }: Props) {
       </section>
       {!needsSetup && <CardTimingCard data={data} today={today} cycle={cycle} />}
       {!needsSetup && <CashflowCard data={data} cycles={cycles} leadCycles={leadCycles} flows={flows} />}
+      {!needsSetup && <OutlookCard data={data} today={today} />}
       <PlannedCard data={data} cycle={cycle} statuses={s.planned} total={s.plannedTotal} onPay={onEntry} />
 
       <Collapsible id="billings" title="今後の引落予定">

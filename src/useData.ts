@@ -1,7 +1,7 @@
 import { useLiveQuery } from 'dexie-react-hooks'
 import { db, type SyncMeta } from './db'
 import { withAccountMethods } from './lib/accountMethods'
-import type { Account, ExtraIncome, PlannedExpense, Transfer, FixedCost, Income, Member, PaymentMethod, Settings, Transaction } from './lib/types'
+import type { Account, Adjustment, ExtraIncome, PlannedExpense, Transfer, FixedCost, Income, Member, PaymentMethod, Settings, Transaction } from './lib/types'
 
 type WithId<T> = T & { id: string }
 
@@ -12,6 +12,7 @@ export interface AppData {
   accounts: WithId<Account>[]
   transfers: WithId<Transfer>[]
   extraIncomes: WithId<ExtraIncome>[]
+  adjustments: WithId<Adjustment>[]
   planned: WithId<PlannedExpense>[]
   methods: WithId<PaymentMethod>[]
   fixedCosts: WithId<FixedCost>[]
@@ -22,13 +23,14 @@ const alive = <T extends SyncMeta>(rows: T[]) => rows.filter((r) => !r.deleted)
 
 export function useData(): AppData | undefined {
   return useLiveQuery(async () => {
-    const [settings, members, incomes, accounts, transfers, extraIncomes, planned, methods, fixedCosts, transactions] = await Promise.all([
+    const [settings, members, incomes, accounts, transfers, extraIncomes, adjustments, planned, methods, fixedCosts, transactions] = await Promise.all([
       db.settings.get('main'),
       db.members.toArray(),
       db.incomes.toArray(),
       db.accounts.toArray(),
       db.transfers.toArray(),
       db.extraIncomes.toArray(),
+      db.adjustments.toArray(),
       db.planned.toArray(),
       db.methods.toArray(),
       db.fixedCosts.toArray(),
@@ -42,6 +44,7 @@ export function useData(): AppData | undefined {
       accounts: alive(accounts).sort((a, b) => a.order - b.order),
       transfers: alive(transfers).sort((a, b) => a.date.localeCompare(b.date)),
       extraIncomes: alive(extraIncomes).sort((a, b) => a.date.localeCompare(b.date)),
+      adjustments: alive(adjustments).sort((a, b) => a.date.localeCompare(b.date)),
       planned: alive(planned).sort((a, b) => a.date.localeCompare(b.date)),
       // 口座ごとの「口座引落・振込」の支払い方法を加える（口座から直接引き落とされた・振り込んだ支出用）
       methods: withAccountMethods(

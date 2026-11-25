@@ -256,3 +256,13 @@ input[type="checkbox"] { width: 20px; height: 20px; padding: 0; flex-shrink: 0; 
 .outlook td.neg { color: var(--neg); }
 .outlook-unit { text-align: right; margin: 0 0 2px; }
 .outlook .badge { display: inline-block; margin: 2px 0 0 4px; }
+
+/* 口座の残高の推移 */
+.ledger-spark { width: 100%; height: 56px; margin: 6px 0; }
+.spark-line { stroke: var(--accent); }
+.spark-zero { stroke: var(--neg); stroke-width: 1; stroke-dasharray: 3 3; }
+.ledger-head { font-size: 14px; margin: 12px 0 4px; }
+.ledger-list li.ledger-base { font-weight: 600; }
+.ledger-list li.done .amount { color: var(--muted); }
+.ledger-list .pos { color: var(--accent); }
+.ledger-link { text-align: left; padding: 0; color: inherit; font: inherit; }

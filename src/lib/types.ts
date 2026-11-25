@@ -92,6 +92,19 @@ export interface ExtraIncome {
   memo: string
 }
 
+/**
+ * 口座の残高の調整（微調整）。実際の残高とのずれを直すための、プラスまたはマイナスの金額。
+ * 口座の残高にだけ反映し、収入・支出・予算には影響しない。
+ */
+export interface Adjustment {
+  id?: string
+  date: YMD
+  /** 残高に足す額（マイナスなら引く） */
+  amount: number
+  accountId: string
+  memo: string
+}
+
 /** 口座間の振替（家計全体のお金は増減しない） */
 export interface Transfer {
   id?: string

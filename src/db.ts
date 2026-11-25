@@ -1,7 +1,7 @@
 import Dexie, { type Table } from 'dexie'
 import { convertLegacy, type DataSet, type LegacyData } from './lib/legacy'
 import { SEED_MEMBERS, SEED_METHODS, SEED_SETTINGS } from './lib/seed'
-import type { Account, Adjustment, ExtraIncome, PlannedExpense, Transfer, FixedCost, Income, Member, PaymentMethod, Settings, Transaction } from './lib/types'
+import type { Account, Adjustment, ExtraIncome, Prepayment, PlannedExpense, Transfer, FixedCost, Income, Member, PaymentMethod, Settings, Transaction } from './lib/types'
 
 /** 同期のためにすべてのレコードが持つ項目 */
 export interface SyncMeta {
@@ -17,7 +17,7 @@ export interface SyncMeta {
 
 type Stored<T> = T & SyncMeta & { id: string }
 
-export const TABLES = ['members', 'incomes', 'accounts', 'transfers', 'extraIncomes', 'adjustments', 'planned', 'methods', 'fixedCosts', 'transactions', 'settings'] as const
+export const TABLES = ['members', 'incomes', 'accounts', 'transfers', 'extraIncomes', 'adjustments', 'prepayments', 'planned', 'methods', 'fixedCosts', 'transactions', 'settings'] as const
 export type TableName = (typeof TABLES)[number]
 
 export interface Records {
@@ -27,6 +27,7 @@ export interface Records {
   transfers: Transfer
   extraIncomes: ExtraIncome
   adjustments: Adjustment
+  prepayments: Prepayment
   planned: PlannedExpense
   methods: PaymentMethod
   fixedCosts: FixedCost
@@ -140,6 +141,9 @@ db.version(5).stores({ extraIncomes: 'id, _dirty, date' })
 // v6: 口座の残高の調整
 db.version(6).stores({ adjustments: 'id, _dirty, date' })
 
+// v7: カードの請求の事前の支払い
+db.version(7).stores({ prepayments: 'id, _dirty, paymentDate' })
+
 export interface Backup extends DataSet {
   version: 2
   exportedAt: string
@@ -160,6 +164,7 @@ export async function exportBackup(): Promise<Backup> {
     transfers: strip(await db.transfers.toArray()),
     extraIncomes: strip(await db.extraIncomes.toArray()),
     adjustments: strip(await db.adjustments.toArray()),
+    prepayments: strip(await db.prepayments.toArray()),
     planned: strip(await db.planned.toArray()),
     methods: strip(await db.methods.toArray()),
     fixedCosts: strip(await db.fixedCosts.toArray()),
@@ -180,6 +185,7 @@ export function backupToDataSet(raw: unknown): DataSet {
       transfers: b.transfers ?? [],
       extraIncomes: b.extraIncomes ?? [],
       adjustments: b.adjustments ?? [],
+      prepayments: b.prepayments ?? [],
       planned: b.planned ?? [],
     }
   }

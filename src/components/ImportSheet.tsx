@@ -113,6 +113,7 @@ export function ImportSheet({ data, onClose }: Props) {
       data.settings,
       data.extraIncomes,
       data.adjustments,
+      data.prepayments,
     ] as const
     return {
       before: budgetImpactFor(data.transactions, ...args),

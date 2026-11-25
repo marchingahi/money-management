@@ -2,7 +2,7 @@ import { billingOf } from './billing'
 import { bonusEstimatesFor, fundsCycle } from './bonus'
 import { plannedStatuses, remainingOf, type PlannedStatus } from './planned'
 import { cycleOf, cycleRule, daysBetween, dayWithinCycle, fromYMD, nextBusinessDay, shiftCycle, toYMD, type Cycle } from './dates'
-import { FIXED_CATEGORY, type Account, type Adjustment, type ExtraIncome, type PlannedExpense, type Transfer, type FixedCost, type Income, type Member, type PaymentMethod, type Settings, type Transaction, type YMD } from './types'
+import { FIXED_CATEGORY, type Account, type Adjustment, type ExtraIncome, type Prepayment, type PlannedExpense, type Transfer, type FixedCost, type Income, type Member, type PaymentMethod, type Settings, type Transaction, type YMD } from './types'
 
 export interface FixedStatus {
   cost: FixedCost
@@ -67,6 +67,7 @@ export function committedBillings(
   methods: PaymentMethod[],
   cycle: Cycle,
   incomeCycle: Cycle,
+  prepayments: Prepayment[] = [],
 ): CommittedBilling[] {
   const byId = new Map(methods.map((m) => [m.id, m]))
   const groups = new Map<string, CommittedBilling>()
@@ -80,7 +81,14 @@ export function committedBillings(
     g.amount += t.amount
     groups.set(key, g)
   }
-  return [...groups.values()].sort((a, b) => a.paymentDate.localeCompare(b.paymentDate) || a.method.order - b.method.order)
+  // 事前に支払い済みの分は、引落がなくなるので差し引く
+  for (const g of groups.values()) {
+    const paid = prepayments.filter((p) => p.billKey === `out:${g.method.id}@${g.paymentDate}`).reduce((s, p) => s + p.amount, 0)
+    g.amount = Math.max(g.amount - paid, 0)
+  }
+  return [...groups.values()]
+    .filter((g) => g.amount > 0)
+    .sort((a, b) => a.paymentDate.localeCompare(b.paymentDate) || a.method.order - b.method.order)
 }
 
 export const inCycle = (date: YMD, cycle: Cycle) => date >= cycle.start && date <= cycle.end
@@ -132,6 +140,7 @@ export function summarize(
   plans: (PlannedExpense & { id: string })[] = [],
   methods: PaymentMethod[] = [],
   extraIncomes: ExtraIncome[] = [],
+  prepayments: Prepayment[] = [],
 ): BudgetSummary {
   const incomes = incomeStatuses(members, incomeRecords, incomeCycle)
   const income = incomes.reduce((s, i) => s + i.amount, 0)
@@ -158,7 +167,7 @@ export function summarize(
     .filter((t) => !isFixedTx(t) && t.plannedId == null && inCycle(t.date, cycle))
     .reduce((s, t) => s + t.amount, 0)
   const remaining = budget - spent
-  const committed = committedBillings(txs, methods, cycle, incomeCycle)
+  const committed = committedBillings(txs, methods, cycle, incomeCycle, prepayments)
   const committedTotal = committed.reduce((sum, c) => sum + c.amount, 0)
   const daysLeft = inCycle(today, cycle) ? daysBetween(today, cycle.end) + 1 : null
   const perDay = daysLeft ? Math.floor(Math.max(remaining, 0) / daysLeft) : null
@@ -221,6 +230,13 @@ export function outflowLabel(o: Outflow): string {
   if (o.method.kind === 'credit') return names ? `${o.method.name} 引落（${names}）` : `${o.method.name} 引落`
   return names ? `${names}の支払い` : `${o.method.name}での支払い`
 }
+
+/** 請求（出金）のうち、事前に支払い済みの額（`Prepayment.billKey` が一致するものの合計） */
+export const prepaidFor = (o: Outflow, prepayments: Prepayment[]) =>
+  prepayments.filter((p) => p.billKey === outflowKey(o)).reduce((s, p) => s + p.amount, 0)
+
+/** 口座から実際に引き落とされる額（請求額 − 事前に支払い済みの額。請求が増えた分は引き落とされる。マイナスにはしない） */
+export const debitAmount = (o: Outflow, prepayments: Prepayment[]) => Math.max(o.amount - prepaidFor(o, prepayments), 0)
 
 /** 出金（支払い方法 × 出金日 × 口座の指定）を区別するキー。残高入力日の反映済み指定にも使う */
 export const outflowKey = (o: Outflow) =>
@@ -431,6 +447,7 @@ export function cycleEvents(
   settings: Settings,
   transfers: Transfer[] = [],
   adjustments: Adjustment[] = [],
+  prepayments: Prepayment[] = [],
 ): AccountEvent[] {
   const resolve = accountResolver(accounts)
   const events: AccountEvent[] = []
@@ -462,7 +479,8 @@ export function cycleEvents(
       {
         key: outflowKey(o),
         date: o.paymentDate,
-        amount: -o.amount,
+        // 事前に支払い済みの分は、口座から引き落とされない
+        amount: -debitAmount(o, prepayments),
         label: outflowLabel(o),
       },
       o.accountId ?? o.method.accountId,
@@ -480,6 +498,11 @@ export function cycleEvents(
     const to = accounts.find((a) => a.id === t.toAccountId)!.name
     events.push({ key: `transfer:${t.id}:out`, date: t.date, amount: -t.amount, accountId: t.fromAccountId, label: `${to}へ振替` })
     events.push({ key: `transfer:${t.id}:in`, date: t.date, amount: t.amount, accountId: t.toAccountId, label: `${from}から振替` })
+  }
+  // 事前に支払った請求のうち、支払い元に口座を選んだものは、支払った日にその口座から出金する
+  for (const p of prepayments) {
+    if (!p.accountId || !inCycle(p.paidDate, cf.cycle)) continue
+    events.push({ key: `prepay:${p.id}`, date: p.paidDate, amount: -p.amount, accountId: resolve(p.accountId) ?? p.accountId, label: `${p.methodName}の事前支払い` })
   }
   // 残高の調整（微調整）は、実際の残高とのずれを直す金額。収入・支出ではなく、口座の残高にだけ加える
   for (const a of adjustments) {
@@ -527,13 +550,14 @@ export function projectAccounts(
   settings: Settings,
   transfers: Transfer[] = [],
   adjustments: Adjustment[] = [],
+  prepayments: Prepayment[] = [],
 ): CycleCarry[] | null {
   const tracked = accounts.filter((a) => a.balance != null && a.balanceDate)
   if (!tracked.length) return null
   const running = new Map(tracked.map((a) => [a.id!, a.balance!]))
 
   return cashflows.map((cf) => {
-    const events = cycleEvents(cf, accounts, settings, transfers, adjustments)
+    const events = cycleEvents(cf, accounts, settings, transfers, adjustments, prepayments)
     const carries = tracked.map((account) => {
       const opening = running.get(account.id!)!
       let balance = opening
@@ -597,10 +621,11 @@ export function budgetImpactFor(
   settings: Settings,
   extraIncomes: ExtraIncome[] = [],
   adjustments: Adjustment[] = [],
+  prepayments: Prepayment[] = [],
 ): BudgetImpact {
   const cycle = cycleOf(today, cycleRule(settings))
   const incomeCycle = budgetIncomeCycle(cycle, settings)
-  const s = summarize(cycle, today, members, incomeRecords, fixedCosts, txs, settings, incomeCycle, planned, methods, extraIncomes)
+  const s = summarize(cycle, today, members, incomeRecords, fixedCosts, txs, settings, incomeCycle, planned, methods, extraIncomes, prepayments)
   const cycles = [0, 1, 2].map((n) => shiftCycle(cycle, n, cycleRule(settings)))
   const flows = outflows(today, methods, txs, fixedCosts, cycles, planned)
   const oldestBalance = accounts.flatMap((a) => (a.balance != null && a.balanceDate ? [a.balanceDate] : [])).sort()[0]
@@ -611,7 +636,7 @@ export function budgetImpactFor(
     }
   }
   const toCashflow = (c: Cycle) => cashflowFor(c, members, incomeRecords, flows, settings, extraIncomes)
-  const carries = projectAccounts([...leadCycles.map(toCashflow), ...cycles.map(toCashflow)], accounts, settings, transfers, adjustments)
+  const carries = projectAccounts([...leadCycles.map(toCashflow), ...cycles.map(toCashflow)], accounts, settings, transfers, adjustments, prepayments)
   const carry = carries?.[leadCycles.length]
   return { remaining: s.remaining, accounts: carry?.accounts.map((c) => ({ account: c.account, closing: c.closing })) ?? [] }
 }

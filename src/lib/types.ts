@@ -105,6 +105,27 @@ export interface Adjustment {
   memo: string
 }
 
+/**
+ * カードの請求を、口座からの引落ではなく、事前にATMなどで支払った記録。
+ * 登録した額の分は、引落日の口座からの引落をなくす。支払い元に口座を選んだときは、支払った日にその口座から出金する。
+ */
+export interface Prepayment {
+  id?: string
+  /** 対象の請求（`outflowKey`: 支払い方法 × 引落日） */
+  billKey: string
+  /** 表示用に、登録したときのカード名を持つ */
+  methodName: string
+  /** 対象の請求の引落日 */
+  paymentDate: YMD
+  /** 事前に支払った額 */
+  amount: number
+  /** 支払った日 */
+  paidDate: YMD
+  /** 支払い元の口座。未設定は、口座を使わない支払い（現金など） */
+  accountId?: string
+  memo: string
+}
+
 /** 口座間の振替（家計全体のお金は増減しない） */
 export interface Transfer {
   id?: string

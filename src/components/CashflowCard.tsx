@@ -15,7 +15,7 @@ import {
 import { addDays } from 'date-fns'
 import { formatMD, fromYMD, toYMD, todayYMD, type Cycle } from '../lib/dates'
 import { accountLedger } from '../lib/ledger'
-import type { Account, Adjustment, ExtraIncome, PaymentMethod, Transaction, Transfer, YMD } from '../lib/types'
+import type { Account, Adjustment, ExtraIncome, PaymentMethod, Prepayment, Transaction, Transfer, YMD } from '../lib/types'
 import { yen, type AppData } from '../useData'
 import { BalanceForm } from './BalanceForm'
 import { IncomeForm } from './IncomeForm'
@@ -23,6 +23,7 @@ import { isBonusEstimate } from '../lib/bonus'
 import { AccountMoveForm } from './AccountMoveForm'
 import { AdjustmentForm } from './AdjustmentForm'
 import { LedgerSheet } from './LedgerSheet'
+import { PrepaymentForm, type BillInfo } from './PrepaymentForm'
 import { TransferForm } from './TransferForm'
 
 interface Props {
@@ -45,7 +46,7 @@ const NEW_ACCOUNT = '__new'
 
 /** 給料ごとに「その期間の引落・支払いを済ませたあと、いくら残るか」を表示する */
 export function CashflowCard({ data, cycles, leadCycles, flows, onEditTx }: Props) {
-  const { settings, accounts, transfers, adjustments } = data
+  const { settings, accounts, transfers, adjustments, prepayments } = data
   // 初期表示は設定で選ぶ（既定は今回の給料。カード払い中心なら、使った分が引き落とされる次の給料にもできる）
   const [selected, setSelected] = useState(Math.min(settings.cashflowInitial === 'next' ? 1 : 0, cycles.length - 1))
   const [editingIncome, setEditingIncome] = useState<IncomeStatus | null>(null)
@@ -55,6 +56,8 @@ export function CashflowCard({ data, cycles, leadCycles, flows, onEditTx }: Prop
   // 口座の残高の推移（口座の ID）と、残高の微調整の入力
   const [ledgerAccountId, setLedgerAccountId] = useState<string | null>(null)
   const [adjusting, setAdjusting] = useState<Partial<Adjustment> | null>(null)
+  // カードの請求の事前支払い（ATMなど）の入力
+  const [prepaying, setPrepaying] = useState<{ bill: BillInfo; initial?: Prepayment & { id: string } } | null>(null)
   // 中身を開いている行（出金の行のキー）
   const [openRows, setOpenRows] = useState<Set<string>>(new Set())
   const toggleRow = (key: string) =>
@@ -93,7 +96,7 @@ export function CashflowCard({ data, cycles, leadCycles, flows, onEditTx }: Prop
   const toCashflow = (c: Cycle) => cashflowFor(c, data.members, data.incomes, flows, settings, data.extraIncomes)
   const lead = leadCycles.map(toCashflow)
   const all = cycles.map(toCashflow)
-  const carries = projectAccounts([...lead, ...all], accounts, settings, transfers, adjustments)?.slice(lead.length) ?? null
+  const carries = projectAccounts([...lead, ...all], accounts, settings, transfers, adjustments, prepayments)?.slice(lead.length) ?? null
 
   const cf = all[selected]
   const carry = carries?.[selected]
@@ -105,7 +108,7 @@ export function CashflowCard({ data, cycles, leadCycles, flows, onEditTx }: Prop
   const untracked = accounts.filter((a) => a.balance == null || !a.balanceDate)
 
   // 各予定が、口座残高に反映済みか
-  const events = new Map(cycleEvents(cf, accounts, settings, transfers, adjustments).map((e) => [e.key, e]))
+  const events = new Map(cycleEvents(cf, accounts, settings, transfers, adjustments, prepayments).map((e) => [e.key, e]))
   const settled = (key: string) => {
     const e = events.get(key)
     const a = e && tracked(e.accountId)
@@ -121,7 +124,7 @@ export function CashflowCard({ data, cycles, leadCycles, flows, onEditTx }: Prop
     const list = accountId ? accounts : [...accounts, { id: NEW_ACCOUNT, name: '', order: 0 }]
     const target = accountId ?? NEW_ACCOUNT
     return [...lead, ...all]
-      .flatMap((c) => cycleEvents(c, list, settings, transfers, adjustments))
+      .flatMap((c) => cycleEvents(c, list, settings, transfers, adjustments, prepayments))
       .filter((e) => e.accountId === target && e.date === date)
   }
 
@@ -152,7 +155,7 @@ export function CashflowCard({ data, cycles, leadCycles, flows, onEditTx }: Prop
   const cycleTransfers = transfers.filter((t) => t.date >= cf.cycle.start && t.date <= cf.cycle.end)
   const cycleAdjustments = adjustments.filter((a) => a.date >= cf.cycle.start && a.date <= cf.cycle.end)
   const ledgerAccount = ledgerAccountId ? accounts.find((a) => a.id === ledgerAccountId) : undefined
-  const ledger = ledgerAccount ? accountLedger(ledgerAccount, accounts, [...lead, ...all], settings, transfers, adjustments) : null
+  const ledger = ledgerAccount ? accountLedger(ledgerAccount, accounts, [...lead, ...all], settings, transfers, adjustments, prepayments) : null
 
   /** 残高不足を補う振替の初期値: 不足額（千円単位で切り上げ）を、引落の前日（今日より前なら今日）に、一番余裕のある口座から */
   const coverShortage = (accountId: string, date: YMD, balance: number) => {
@@ -286,6 +289,9 @@ export function CashflowCard({ data, cycles, leadCycles, flows, onEditTx }: Prop
         })}
         {cf.cards.map((o) => {
           const key = outflowKey(o)
+          const mine = prepayments.filter((p) => p.billKey === key)
+          const prepaid = mine.reduce((s, p) => s + p.amount, 0)
+          const bill: BillInfo = { billKey: key, methodName: o.method.name, paymentDate: o.paymentDate, amount: o.amount, paidOthers: prepaid }
           return (
             <Fragment key={key}>
             <li className={`clickable ${settled(key) ? 'done' : ''}`} onClick={() => toggleRow(key)} aria-expanded={openRows.has(key)}>
@@ -303,11 +309,41 @@ export function CashflowCard({ data, cycles, leadCycles, flows, onEditTx }: Prop
                   </span>
                   {o.includesEstimate && <span className="badge est">見込み含む</span>}
                   {settled(key) && doneBadge}
+                  {prepaid > 0 && (
+                    <span className="badge ok">
+                      事前支払い済み −{yen(prepaid)}
+                      {prepaid < o.amount && `（引落 ${yen(o.amount - prepaid)}）`}
+                    </span>
+                  )}
                 </span>
               </span>
               <span className="amount">−{yen(o.amount)}</span>
             </li>
             {detailRows(key, o.items)}
+            {openRows.has(key) &&
+              mine.map((p) => (
+                <li
+                  key={p.id}
+                  className="cf-detail clickable"
+                  onClick={() => setPrepaying({ bill: { ...bill, paidOthers: prepaid - p.amount }, initial: p })}
+                >
+                  <span className="date">{formatMD(p.paidDate)}</span>
+                  <span className="grow">
+                    <span>
+                      事前に支払い（{p.accountId ? `${accountById.get(p.accountId)?.name ?? '口座'}から出金` : '口座を使わない'}）
+                    </span>
+                    {p.memo && <span className="muted small">{p.memo}</span>}
+                  </span>
+                  <span className="amount">{yen(p.amount)}</span>
+                </li>
+              ))}
+            {openRows.has(key) && (
+              <li className="cf-detail">
+                <button className="link-btn" onClick={() => setPrepaying({ bill })}>
+                  ＋ ATMなどで事前に支払った（口座引落ではない）
+                </button>
+              </li>
+            )}
             </Fragment>
           )
         })}
@@ -507,6 +543,7 @@ export function CashflowCard({ data, cycles, leadCycles, flows, onEditTx }: Prop
       {editingTransfer && (
         <TransferForm accounts={accounts} initial={editingTransfer} onClose={() => setEditingTransfer(null)} />
       )}
+      {prepaying && <PrepaymentForm accounts={accounts} bill={prepaying.bill} initial={prepaying.initial} onClose={() => setPrepaying(null)} />}
       {ledger && !adjusting && !editingAccount && (
         <LedgerSheet
           ledger={ledger}

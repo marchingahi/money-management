@@ -1,5 +1,5 @@
 import { cycleEvents, isSettled, type CycleCashflow } from './budget'
-import type { Account, Adjustment, Settings, Transfer, YMD } from './types'
+import type { Account, Adjustment, Prepayment, Settings, Transfer, YMD } from './types'
 
 /**
  * 口座ごとの残高の推移。入力した残高から、そのあとの入出金・振替・調整を日付順に足し引きして、
@@ -37,12 +37,13 @@ export function accountLedger(
   settings: Settings,
   transfers: Transfer[] = [],
   adjustments: Adjustment[] = [],
+  prepayments: Prepayment[] = [],
 ): Ledger | null {
   if (account.balance == null || !account.balanceDate) return null
   let balance = account.balance
   const entries: LedgerEntry[] = []
   for (const cf of cashflows) {
-    for (const e of cycleEvents(cf, accounts, settings, transfers, adjustments)) {
+    for (const e of cycleEvents(cf, accounts, settings, transfers, adjustments, prepayments)) {
       if (e.accountId !== account.id) continue
       const settled = isSettled(e, account)
       if (!settled) balance += e.amount

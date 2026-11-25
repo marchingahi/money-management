@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { accountOfOutflow, budgetIncomeCycle, inCycle, outflowKey, outflows, summarize, type IncomeStatus } from '../lib/budget'
+import { accountOfOutflow, budgetIncomeCycle, debitAmount, prepaidFor, inCycle, outflowKey, outflows, summarize, type IncomeStatus } from '../lib/budget'
 import { cycleOf, cycleRule, formatMD, fromYMD, shiftCycle, todayYMD } from '../lib/dates'
 import { FIXED_CATEGORY, type Transaction } from '../lib/types'
 import { dayLabel, yen, type AppData } from '../useData'
@@ -23,7 +23,7 @@ export function Home({ data, onEntry }: Props) {
   const today = todayYMD()
   const cycle = cycleOf(today, cycleRule(settings))
   const incomeCycle = budgetIncomeCycle(cycle, settings)
-  const s = summarize(cycle, today, members, incomes, fixedCosts, transactions, settings, incomeCycle, data.planned, methods, data.extraIncomes)
+  const s = summarize(cycle, today, members, incomes, fixedCosts, transactions, settings, incomeCycle, data.planned, methods, data.extraIncomes, data.prepayments)
   const cycles = [0, 1, 2].map((n) => shiftCycle(cycle, n, cycleRule(settings)))
   const flows = outflows(today, methods, transactions, fixedCosts, cycles, data.planned)
   // 口座残高の入力日が今のサイクルより前なら、そこから今のサイクルの手前まで（最大6回分）も繰越の計算に使う
@@ -168,12 +168,14 @@ export function Home({ data, onEntry }: Props) {
           <div key={month} className="billing-month">
             <div className="billing-month-head">
               <span>{month}</span>
-              <span>{yen(list.reduce((t, b) => t + b.amount, 0))}</span>
+              <span>{yen(list.reduce((t, b) => t + debitAmount(b, data.prepayments), 0))}</span>
             </div>
             <ul className="list">
               {list.map((b) => {
                 const account = accountOfOutflow(b, data.accounts)
                 const credit = b.method.kind === 'credit'
+                // 事前に支払い済みの分は、引落額から除く
+                const prepaid = prepaidFor(b, data.prepayments)
                 const fixed = b.fixedNames?.join('・')
                 return (
                   <li key={outflowKey(b)}>
@@ -193,8 +195,9 @@ export function Home({ data, onEntry }: Props) {
                         {b.includesEstimate && <span className="badge est">見込み含む</span>}
                       </span>
                       {account && <span className="muted small">引落口座: {account.name}</span>}
+                      {prepaid > 0 && <span className="muted small">事前に支払い済み {yen(prepaid)}（請求 {yen(b.amount)}）</span>}
                     </span>
-                    <span className="amount">{yen(b.amount)}</span>
+                    <span className="amount">{yen(debitAmount(b, data.prepayments))}</span>
                   </li>
                 )
               })}

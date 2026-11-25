@@ -146,6 +146,7 @@ export function buildDemoData(today: YMD): AppData {
     transfers: withMeta(transfers),
     extraIncomes: withMeta(extraIncomes),
     adjustments: [],
+    prepayments: [],
     planned: withMeta(planned),
     methods: withAccountMethods(withMeta(methods), withMeta(accounts)),
     fixedCosts: withMeta(fixedCosts),

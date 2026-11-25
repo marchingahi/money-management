@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { Fragment, useState } from 'react'
 import { Collapsible } from './Collapsible'
 import {
   cashflowFor,
@@ -10,11 +10,12 @@ import {
   type IncomeStatus,
   outflowKey,
   type Outflow,
+  type OutflowItem,
 } from '../lib/budget'
 import { addDays } from 'date-fns'
 import { formatMD, fromYMD, toYMD, todayYMD, type Cycle } from '../lib/dates'
 import { accountLedger } from '../lib/ledger'
-import type { Account, Adjustment, ExtraIncome, PaymentMethod, Transfer, YMD } from '../lib/types'
+import type { Account, Adjustment, ExtraIncome, PaymentMethod, Transaction, Transfer, YMD } from '../lib/types'
 import { yen, type AppData } from '../useData'
 import { BalanceForm } from './BalanceForm'
 import { IncomeForm } from './IncomeForm'
@@ -31,6 +32,8 @@ interface Props {
   /** 口座残高の入力日から表示の手前までのサイクル（繰越の計算にだけ使う） */
   leadCycles: Cycle[]
   flows: Outflow[]
+  /** 中身の支出をタップしたときに、編集画面を開く */
+  onEditTx?: (tx: Transaction) => void
 }
 
 const paydayLabel = (c: Cycle) => {
@@ -41,7 +44,7 @@ const paydayLabel = (c: Cycle) => {
 const NEW_ACCOUNT = '__new'
 
 /** 給料ごとに「その期間の引落・支払いを済ませたあと、いくら残るか」を表示する */
-export function CashflowCard({ data, cycles, leadCycles, flows }: Props) {
+export function CashflowCard({ data, cycles, leadCycles, flows, onEditTx }: Props) {
   const { settings, accounts, transfers, adjustments } = data
   // 初期表示は設定で選ぶ（既定は今回の給料。カード払い中心なら、使った分が引き落とされる次の給料にもできる）
   const [selected, setSelected] = useState(Math.min(settings.cashflowInitial === 'next' ? 1 : 0, cycles.length - 1))
@@ -52,6 +55,40 @@ export function CashflowCard({ data, cycles, leadCycles, flows }: Props) {
   // 口座の残高の推移（口座の ID）と、残高の微調整の入力
   const [ledgerAccountId, setLedgerAccountId] = useState<string | null>(null)
   const [adjusting, setAdjusting] = useState<Partial<Adjustment> | null>(null)
+  // 中身を開いている行（出金の行のキー）
+  const [openRows, setOpenRows] = useState<Set<string>>(new Set())
+  const toggleRow = (key: string) =>
+    setOpenRows((prev) => {
+      const next = new Set(prev)
+      if (!next.delete(key)) next.add(key)
+      return next
+    })
+  /** 出金の中身（個々の支出・固定費の見込み・予定の出費）の一覧 */
+  const detailRows = (key: string, items: OutflowItem[]) =>
+    openRows.has(key)
+      ? [...items]
+          .sort((a, b) => a.date.localeCompare(b.date))
+          .map((it, i) => {
+            const tx = it.txId ? data.transactions.find((t) => t.id === it.txId) : undefined
+            const editable = !!(tx && onEditTx)
+            return (
+              <li
+                key={`${key}-item-${i}`}
+                className={`cf-detail ${editable ? 'clickable' : ''}`}
+                onClick={editable ? () => onEditTx!(tx!) : undefined}
+              >
+                <span className="date">{formatMD(it.date)}</span>
+                <span className="grow">
+                  <span>
+                    {it.label || '（メモなし）'}
+                    {it.estimate && <span className="badge est">見込み</span>}
+                  </span>
+                </span>
+                <span className="amount">−{yen(it.amount)}</span>
+              </li>
+            )
+          })
+      : []
 
   const toCashflow = (c: Cycle) => cashflowFor(c, data.members, data.incomes, flows, settings, data.extraIncomes)
   const lead = leadCycles.map(toCashflow)
@@ -96,12 +133,17 @@ export function CashflowCard({ data, cycles, leadCycles, flows }: Props) {
   }
 
   // 現金・QR などは支払い方法ごとにまとめ、残高に反映済みの分と分ける
-  const direct = new Map<string, { method: PaymentMethod; pending: number; done: number; estimate: boolean }>()
+  const direct = new Map<string, { method: PaymentMethod; pending: number; done: number; estimate: boolean; doneItems: OutflowItem[]; pendingItems: OutflowItem[] }>()
   for (const o of cf.items) {
     if (o.method.kind === 'credit') continue
-    const d = direct.get(o.method.id!) ?? { method: o.method, pending: 0, done: 0, estimate: false }
-    if (settled(outflowKey(o))) d.done += o.amount
-    else d.pending += o.amount
+    const d = direct.get(o.method.id!) ?? { method: o.method, pending: 0, done: 0, estimate: false, doneItems: [], pendingItems: [] }
+    if (settled(outflowKey(o))) {
+      d.done += o.amount
+      d.doneItems.push(...o.items)
+    } else {
+      d.pending += o.amount
+      d.pendingItems.push(...o.items)
+    }
     d.estimate ||= o.includesEstimate
     direct.set(o.method.id!, d)
   }
@@ -245,11 +287,13 @@ export function CashflowCard({ data, cycles, leadCycles, flows }: Props) {
         {cf.cards.map((o) => {
           const key = outflowKey(o)
           return (
-            <li key={key} className={settled(key) ? 'done' : ''}>
+            <Fragment key={key}>
+            <li className={`clickable ${settled(key) ? 'done' : ''}`} onClick={() => toggleRow(key)} aria-expanded={openRows.has(key)}>
               <span className="date">{formatMD(o.paymentDate)}</span>
               <span className="grow">
                 <span>
                   {o.method.name}
+                  <span className="muted small"> {openRows.has(key) ? '▴' : '▾'} 中身</span>
                   {o.method.ownerId != null && <span className="owner"> {memberName(o.method.ownerId)}</span>}
                   {acctTag(key)}
                 </span>
@@ -263,34 +307,44 @@ export function CashflowCard({ data, cycles, leadCycles, flows }: Props) {
               </span>
               <span className="amount">−{yen(o.amount)}</span>
             </li>
+            {detailRows(key, o.items)}
+            </Fragment>
           )
         })}
         {[...direct.values()].flatMap((d) => [
           ...(d.done
             ? [
-                <li key={`${d.method.id}-done`} className="done">
-                  <span className="date">期間中</span>
-                  <span className="grow">
-                    <span>
-                      {d.method.name}での支払い{doneBadge}
+                <Fragment key={`${d.method.id}-done`}>
+                  <li className="clickable done" onClick={() => toggleRow(`${d.method.id}-done`)} aria-expanded={openRows.has(`${d.method.id}-done`)}>
+                    <span className="date">期間中</span>
+                    <span className="grow">
+                      <span>
+                        {d.method.name}での支払い{doneBadge}
+                        <span className="muted small"> {openRows.has(`${d.method.id}-done`) ? '▴' : '▾'} 中身</span>
+                      </span>
                     </span>
-                  </span>
-                  <span className="amount">−{yen(d.done)}</span>
-                </li>,
+                    <span className="amount">−{yen(d.done)}</span>
+                  </li>
+                  {detailRows(`${d.method.id}-done`, d.doneItems)}
+                </Fragment>,
               ]
             : []),
           ...(d.pending
             ? [
-                <li key={`${d.method.id}-pending`}>
-                  <span className="date">期間中</span>
-                  <span className="grow">
-                    <span>
-                      {d.method.name}での支払い
-                      {d.estimate && <span className="badge est">見込み含む</span>}
+                <Fragment key={`${d.method.id}-pending`}>
+                  <li className="clickable" onClick={() => toggleRow(`${d.method.id}-pending`)} aria-expanded={openRows.has(`${d.method.id}-pending`)}>
+                    <span className="date">期間中</span>
+                    <span className="grow">
+                      <span>
+                        {d.method.name}での支払い
+                        {d.estimate && <span className="badge est">見込み含む</span>}
+                        <span className="muted small"> {openRows.has(`${d.method.id}-pending`) ? '▴' : '▾'} 中身</span>
+                      </span>
                     </span>
-                  </span>
-                  <span className="amount">−{yen(d.pending)}</span>
-                </li>,
+                    <span className="amount">−{yen(d.pending)}</span>
+                  </li>
+                  {detailRows(`${d.method.id}-pending`, d.pendingItems)}
+                </Fragment>,
               ]
             : []),
         ])}

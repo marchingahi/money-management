@@ -266,3 +266,7 @@ input[type="checkbox"] { width: 20px; height: 20px; padding: 0; flex-shrink: 0; 
 .ledger-list li.done .amount { color: var(--muted); }
 .ledger-list .pos { color: var(--accent); }
 .ledger-link { text-align: left; padding: 0; color: inherit; font: inherit; }
+
+/* 出金の中身（個々の支出・固定費の見込み・予定の出費） */
+.list li.cf-detail { padding: 5px 0 5px 12px; font-size: 12px; background: var(--bg); border-top: 1px dashed var(--border); }
+.list li.cf-detail .amount { font-weight: 400; }

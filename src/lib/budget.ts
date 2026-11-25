@@ -184,6 +184,18 @@ export function summarize(
   }
 }
 
+/** 出金の中身 1 件（個々の支出・固定費の見込み・予定の出費の見込み） */
+export interface OutflowItem {
+  /** 利用日（見込みの固定費・予定の出費は、その予定日） */
+  date: YMD
+  label: string
+  amount: number
+  /** 見込み額か（固定費で実額が未入力、予定の出費の残りなど） */
+  estimate: boolean
+  /** 記録済みの支出のとき、その ID（編集に使う） */
+  txId?: string
+}
+
 /** 口座などから実際にお金が出ていく単位（支払い方法 × 出金日） */
 export interface Outflow {
   method: PaymentMethod
@@ -199,6 +211,8 @@ export interface Outflow {
   accountId?: string
   /** 口座を指定した固定費の名前（残高不足などの案内に使う） */
   fixedNames?: string[]
+  /** この出金の中身（日付順） */
+  items: OutflowItem[]
 }
 
 /** 口座の入出金の予定に付ける名前。口座を指定した固定費は、その固定費の名前で案内する */
@@ -236,6 +250,7 @@ export function outflows(
     paymentMonth?: string,
     accountId?: string,
     fixedName?: string,
+    item?: { label: string; txId?: string },
   ) => {
     const method = byId.get(methodId)
     if (!method) return
@@ -253,10 +268,12 @@ export function outflows(
       amount: 0,
       confirmed: method.kind !== 'credit' || closingDate < today,
       includesEstimate: false,
+      items: [],
       ...(accountId && { accountId }),
     }
     g.amount += amount
     g.includesEstimate ||= estimate
+    g.items.push({ date, label: item?.label ?? '', amount, estimate, ...(item?.txId && { txId: item.txId }) })
     if (fixedName && !g.fixedNames?.includes(fixedName)) g.fixedNames = [...(g.fixedNames ?? []), fixedName]
     groups.set(key, g)
   }
@@ -264,7 +281,10 @@ export function outflows(
   const fixedById = new Map(fixedCosts.map((f) => [f.id, f]))
   for (const t of txs) {
     const fixed = t.fixedCostId ? fixedById.get(t.fixedCostId) : undefined
-    add(t.date, t.amount, t.methodId, false, t.paymentMonth, fixed?.accountId, fixed?.accountId ? fixed.name : undefined)
+    add(t.date, t.amount, t.methodId, false, t.paymentMonth, fixed?.accountId, fixed?.accountId ? fixed.name : undefined, {
+      label: t.memo || fixed?.name || t.category,
+      txId: t.id,
+    })
   }
   // 払い終わっていない予定の出費は、残りの額が予定日に出ていく見込みとして含める
   // （予定日を過ぎているなら今日払う見込みとして）
@@ -272,11 +292,13 @@ export function outflows(
   for (const t of txs) if (t.plannedId) paidByPlan.set(t.plannedId, (paidByPlan.get(t.plannedId) ?? 0) + t.amount)
   for (const p of plans) {
     const rest = remainingOf(p, paidByPlan.get(p.id!) ?? 0)
-    if (rest > 0) add(p.date < today ? today : p.date, rest, p.methodId, true)
+    if (rest > 0) add(p.date < today ? today : p.date, rest, p.methodId, true, undefined, undefined, undefined, { label: `${p.name}（予定の出費の残り）` })
   }
   for (const cycle of cyclesForEstimates) {
     for (const f of fixedStatuses(fixedCosts, txs, cycle)) {
-      if (f.actual == null) add(f.date, f.cost.amount, f.cost.methodId, true, undefined, f.cost.accountId, f.cost.accountId ? f.cost.name : undefined)
+      if (f.actual == null) add(f.date, f.cost.amount, f.cost.methodId, true, undefined, f.cost.accountId, f.cost.accountId ? f.cost.name : undefined, {
+        label: `${f.cost.name}（固定費の見込み）`,
+      })
     }
   }
 

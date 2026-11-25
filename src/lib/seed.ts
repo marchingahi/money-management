@@ -54,6 +54,7 @@ export const seedDataSet = (): DataSet => ({
   accounts: [],
   transfers: [],
   extraIncomes: [],
+  adjustments: [],
   planned: [],
   methods: SEED_METHODS,
   fixedCosts: [],

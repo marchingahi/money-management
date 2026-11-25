@@ -13,12 +13,15 @@ import {
 } from '../lib/budget'
 import { addDays } from 'date-fns'
 import { formatMD, fromYMD, toYMD, todayYMD, type Cycle } from '../lib/dates'
-import type { Account, ExtraIncome, PaymentMethod, Transfer, YMD } from '../lib/types'
+import { accountLedger } from '../lib/ledger'
+import type { Account, Adjustment, ExtraIncome, PaymentMethod, Transfer, YMD } from '../lib/types'
 import { yen, type AppData } from '../useData'
 import { BalanceForm } from './BalanceForm'
 import { IncomeForm } from './IncomeForm'
 import { isBonusEstimate } from '../lib/bonus'
 import { AccountMoveForm } from './AccountMoveForm'
+import { AdjustmentForm } from './AdjustmentForm'
+import { LedgerSheet } from './LedgerSheet'
 import { TransferForm } from './TransferForm'
 
 interface Props {
@@ -39,18 +42,21 @@ const NEW_ACCOUNT = '__new'
 
 /** 給料ごとに「その期間の引落・支払いを済ませたあと、いくら残るか」を表示する */
 export function CashflowCard({ data, cycles, leadCycles, flows }: Props) {
-  const { settings, accounts, transfers } = data
+  const { settings, accounts, transfers, adjustments } = data
   // 初期表示は設定で選ぶ（既定は今回の給料。カード払い中心なら、使った分が引き落とされる次の給料にもできる）
   const [selected, setSelected] = useState(Math.min(settings.cashflowInitial === 'next' ? 1 : 0, cycles.length - 1))
   const [editingIncome, setEditingIncome] = useState<IncomeStatus | null>(null)
   const [editingAccount, setEditingAccount] = useState<Account | null>(null)
   const [editingTransfer, setEditingTransfer] = useState<Partial<Transfer> | null>(null)
   const [editingExtra, setEditingExtra] = useState<Partial<ExtraIncome> | null>(null)
+  // 口座の残高の推移（口座の ID）と、残高の微調整の入力
+  const [ledgerAccountId, setLedgerAccountId] = useState<string | null>(null)
+  const [adjusting, setAdjusting] = useState<Partial<Adjustment> | null>(null)
 
   const toCashflow = (c: Cycle) => cashflowFor(c, data.members, data.incomes, flows, settings, data.extraIncomes)
   const lead = leadCycles.map(toCashflow)
   const all = cycles.map(toCashflow)
-  const carries = projectAccounts([...lead, ...all], accounts, settings, transfers)?.slice(lead.length) ?? null
+  const carries = projectAccounts([...lead, ...all], accounts, settings, transfers, adjustments)?.slice(lead.length) ?? null
 
   const cf = all[selected]
   const carry = carries?.[selected]
@@ -62,7 +68,7 @@ export function CashflowCard({ data, cycles, leadCycles, flows }: Props) {
   const untracked = accounts.filter((a) => a.balance == null || !a.balanceDate)
 
   // 各予定が、口座残高に反映済みか
-  const events = new Map(cycleEvents(cf, accounts, settings, transfers).map((e) => [e.key, e]))
+  const events = new Map(cycleEvents(cf, accounts, settings, transfers, adjustments).map((e) => [e.key, e]))
   const settled = (key: string) => {
     const e = events.get(key)
     const a = e && tracked(e.accountId)
@@ -78,7 +84,7 @@ export function CashflowCard({ data, cycles, leadCycles, flows }: Props) {
     const list = accountId ? accounts : [...accounts, { id: NEW_ACCOUNT, name: '', order: 0 }]
     const target = accountId ?? NEW_ACCOUNT
     return [...lead, ...all]
-      .flatMap((c) => cycleEvents(c, list, settings, transfers))
+      .flatMap((c) => cycleEvents(c, list, settings, transfers, adjustments))
       .filter((e) => e.accountId === target && e.date === date)
   }
 
@@ -102,6 +108,9 @@ export function CashflowCard({ data, cycles, leadCycles, flows }: Props) {
 
   const nextOrder = Math.max(0, ...accounts.map((a) => a.order)) + 1
   const cycleTransfers = transfers.filter((t) => t.date >= cf.cycle.start && t.date <= cf.cycle.end)
+  const cycleAdjustments = adjustments.filter((a) => a.date >= cf.cycle.start && a.date <= cf.cycle.end)
+  const ledgerAccount = ledgerAccountId ? accounts.find((a) => a.id === ledgerAccountId) : undefined
+  const ledger = ledgerAccount ? accountLedger(ledgerAccount, accounts, [...lead, ...all], settings, transfers, adjustments) : null
 
   /** 残高不足を補う振替の初期値: 不足額（千円単位で切り上げ）を、引落の前日（今日より前なら今日）に、一番余裕のある口座から */
   const coverShortage = (accountId: string, date: YMD, balance: number) => {
@@ -159,8 +168,10 @@ export function CashflowCard({ data, cycles, leadCycles, flows }: Props) {
         {carry?.accounts.map((c) => (
           <li key={c.account.id} className="cf-opening">
             <span className="grow">
-              {c.account.name}
-              {c.fromInput ? `（${formatMD(c.account.balanceDate!)}時点の残高）` : '（繰越）'}
+              <button className="link-btn ledger-link" onClick={() => setLedgerAccountId(c.account.id!)} aria-label={`${c.account.name}の残高の推移`}>
+                {c.account.name}
+                {c.fromInput ? `（${formatMD(c.account.balanceDate!)}時点の残高）` : '（繰越）'} ›
+              </button>
             </span>
             {c.fromInput ? (
               <button className="link-btn amount" onClick={() => setEditingAccount(c.account)}>
@@ -310,6 +321,33 @@ export function CashflowCard({ data, cycles, leadCycles, flows }: Props) {
             </li>
           )
         })}
+        {cycleAdjustments.map((a) => {
+          const done = settled(`adjust:${a.id}`)
+          const label = accountById.get(a.accountId)?.name
+          return (
+            <li
+              key={a.id}
+              className={`clickable ${done ? 'done' : ''}`}
+              onClick={() => {
+                setLedgerAccountId(a.accountId)
+                setAdjusting(a)
+              }}
+            >
+              <span className="date">{formatMD(a.date)}</span>
+              <span className="grow">
+                <span>
+                  残高の調整{label && accounts.length > 1 && ` → ${label}`}
+                  {done && doneBadge}
+                </span>
+                {a.memo && <span className="muted small">{a.memo}</span>}
+              </span>
+              <span className={`amount ${a.amount < 0 ? '' : 'transfer'}`}>
+                {a.amount > 0 ? '+' : ''}
+                {yen(a.amount)}
+              </span>
+            </li>
+          )
+        })}
         {cf.extras.map((x) => {
           const done = settled(`extra:${x.id}`)
           const estimate = isBonusEstimate(x)
@@ -352,7 +390,12 @@ export function CashflowCard({ data, cycles, leadCycles, flows }: Props) {
             {carry.accounts.length > 1 &&
               carry.accounts.map((c) => (
                 <li key={c.account.id} className="cf-sub">
-                  <span className="grow">　{c.account.name}</span>
+                  <span className="grow">
+                    　
+                    <button className="link-btn ledger-link" onClick={() => setLedgerAccountId(c.account.id!)} aria-label={`${c.account.name}の残高の推移`}>
+                      {c.account.name} ›
+                    </button>
+                  </span>
                   <span className={`amount ${c.closing < 0 ? 'neg' : ''}`}>{yen(c.closing)}</span>
                 </li>
               ))}
@@ -410,6 +453,15 @@ export function CashflowCard({ data, cycles, leadCycles, flows }: Props) {
       {editingTransfer && (
         <TransferForm accounts={accounts} initial={editingTransfer} onClose={() => setEditingTransfer(null)} />
       )}
+      {ledger && !adjusting && !editingAccount && (
+        <LedgerSheet
+          ledger={ledger}
+          onClose={() => setLedgerAccountId(null)}
+          onAdjust={(initial) => setAdjusting(initial ? (adjustments.find((a) => a.id === initial.id) ?? {}) : {})}
+          onEditBalance={() => ledgerAccount && setEditingAccount(ledgerAccount)}
+        />
+      )}
+      {ledger && adjusting && <AdjustmentForm ledger={ledger} initial={adjusting} onClose={() => setAdjusting(null)} />}
       {editingAccount && (
         <BalanceForm account={editingAccount} eventsOn={eventsOn} onClose={() => setEditingAccount(null)} />
       )}

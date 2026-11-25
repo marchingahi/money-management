@@ -33,7 +33,7 @@ export interface Outlook {
 export const OUTLOOK_CYCLES = 12
 
 export function buildOutlook(data: AppData, today: YMD, count = OUTLOOK_CYCLES): Outlook {
-  const { settings, members, incomes, accounts, methods, fixedCosts, transactions, transfers, planned, extraIncomes } = data
+  const { settings, members, incomes, accounts, methods, fixedCosts, transactions, transfers, planned, extraIncomes, adjustments } = data
   const rule = cycleRule(settings)
   const cycle = cycleOf(today, rule)
   const cycles = Array.from({ length: count }, (_, n) => shiftCycle(cycle, n, rule))
@@ -50,7 +50,7 @@ export function buildOutlook(data: AppData, today: YMD, count = OUTLOOK_CYCLES):
 
   const toCashflow = (c: Cycle) => cashflowFor(c, members, incomes, flows, settings, extraIncomes)
   const cfs = cycles.map(toCashflow)
-  const carries = projectAccounts([...lead.map(toCashflow), ...cfs], accounts, settings, transfers)?.slice(lead.length) ?? null
+  const carries = projectAccounts([...lead.map(toCashflow), ...cfs], accounts, settings, transfers, adjustments)?.slice(lead.length) ?? null
 
   const rows = cfs.map((cf, i): OutlookRow => {
     const carry = carries?.[i]

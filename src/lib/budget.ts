@@ -2,7 +2,7 @@ import { billingOf } from './billing'
 import { bonusEstimatesFor, fundsCycle } from './bonus'
 import { plannedStatuses, remainingOf, type PlannedStatus } from './planned'
 import { cycleOf, cycleRule, daysBetween, dayWithinCycle, fromYMD, nextBusinessDay, shiftCycle, toYMD, type Cycle } from './dates'
-import { FIXED_CATEGORY, type Account, type ExtraIncome, type PlannedExpense, type Transfer, type FixedCost, type Income, type Member, type PaymentMethod, type Settings, type Transaction, type YMD } from './types'
+import { FIXED_CATEGORY, type Account, type Adjustment, type ExtraIncome, type PlannedExpense, type Transfer, type FixedCost, type Income, type Member, type PaymentMethod, type Settings, type Transaction, type YMD } from './types'
 
 export interface FixedStatus {
   cost: FixedCost
@@ -408,6 +408,7 @@ export function cycleEvents(
   accounts: Account[],
   settings: Settings,
   transfers: Transfer[] = [],
+  adjustments: Adjustment[] = [],
 ): AccountEvent[] {
   const resolve = accountResolver(accounts)
   const events: AccountEvent[] = []
@@ -458,6 +459,11 @@ export function cycleEvents(
     events.push({ key: `transfer:${t.id}:out`, date: t.date, amount: -t.amount, accountId: t.fromAccountId, label: `${to}へ振替` })
     events.push({ key: `transfer:${t.id}:in`, date: t.date, amount: t.amount, accountId: t.toAccountId, label: `${from}から振替` })
   }
+  // 残高の調整（微調整）は、実際の残高とのずれを直す金額。収入・支出ではなく、口座の残高にだけ加える
+  for (const a of adjustments) {
+    if (!inCycle(a.date, cf.cycle)) continue
+    events.push({ key: `adjust:${a.id}`, date: a.date, amount: a.amount, accountId: resolve(a.accountId) ?? a.accountId, label: a.memo ? `残高の調整（${a.memo}）` : '残高の調整' })
+  }
   // 同じ日は入金を先に数える（振替で補った日に引落があっても不足扱いにしない）
   return events.sort((a, b) => a.date.localeCompare(b.date) || b.amount - a.amount)
 }
@@ -498,13 +504,14 @@ export function projectAccounts(
   accounts: Account[],
   settings: Settings,
   transfers: Transfer[] = [],
+  adjustments: Adjustment[] = [],
 ): CycleCarry[] | null {
   const tracked = accounts.filter((a) => a.balance != null && a.balanceDate)
   if (!tracked.length) return null
   const running = new Map(tracked.map((a) => [a.id!, a.balance!]))
 
   return cashflows.map((cf) => {
-    const events = cycleEvents(cf, accounts, settings, transfers)
+    const events = cycleEvents(cf, accounts, settings, transfers, adjustments)
     const carries = tracked.map((account) => {
       const opening = running.get(account.id!)!
       let balance = opening
@@ -567,6 +574,7 @@ export function budgetImpactFor(
   planned: (PlannedExpense & { id: string })[],
   settings: Settings,
   extraIncomes: ExtraIncome[] = [],
+  adjustments: Adjustment[] = [],
 ): BudgetImpact {
   const cycle = cycleOf(today, cycleRule(settings))
   const incomeCycle = budgetIncomeCycle(cycle, settings)
@@ -581,7 +589,7 @@ export function budgetImpactFor(
     }
   }
   const toCashflow = (c: Cycle) => cashflowFor(c, members, incomeRecords, flows, settings, extraIncomes)
-  const carries = projectAccounts([...leadCycles.map(toCashflow), ...cycles.map(toCashflow)], accounts, settings, transfers)
+  const carries = projectAccounts([...leadCycles.map(toCashflow), ...cycles.map(toCashflow)], accounts, settings, transfers, adjustments)
   const carry = carries?.[leadCycles.length]
   return { remaining: s.remaining, accounts: carry?.accounts.map((c) => ({ account: c.account, closing: c.closing })) ?? [] }
 }

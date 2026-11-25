@@ -158,7 +158,7 @@ export function Home({ data, onEntry }: Props) {
         )}
       </section>
       {!needsSetup && <CardTimingCard data={data} today={today} cycle={cycle} />}
-      {!needsSetup && <CashflowCard data={data} cycles={cycles} leadCycles={leadCycles} flows={flows} />}
+      {!needsSetup && <CashflowCard data={data} cycles={cycles} leadCycles={leadCycles} flows={flows} onEditTx={onEntry} />}
       {!needsSetup && <OutlookCard data={data} today={today} />}
       <PlannedCard data={data} cycle={cycle} statuses={s.planned} total={s.plannedTotal} onPay={onEntry} />
 

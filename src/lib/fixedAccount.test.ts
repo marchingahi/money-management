@@ -108,7 +108,7 @@ describe('引落先の口座', () => {
   const bank: PaymentMethod = { id: 'b', name: '口座引落', kind: 'debit', closingDay: 31, paymentDay: 31, monthOffset: 0, order: 4, accountId: 'a2' }
   const unset: PaymentMethod = { id: 'u', name: '現金', kind: 'cash', closingDay: 31, paymentDay: 31, monthOffset: 0, order: 5 }
   const out = (m: PaymentMethod, accountId?: string) =>
-    ({ method: m, paymentDate: '2026-11-01', closingDate: '2026-11-01', amount: 1, confirmed: true, includesEstimate: false, ...(accountId && { accountId }) })
+    ({ method: m, paymentDate: '2026-11-01', closingDate: '2026-11-01', amount: 1, confirmed: true, includesEstimate: false, items: [], ...(accountId && { accountId }) })
 
   it('支払い方法の口座、固定費で指定した口座、未指定は最初の口座。口座を使わない現金は口座なし', () => {
     expect(accountOfOutflow(out(card), accts)?.name).toBe('Olive') // カードに口座の指定なし → 最初の口座
